@@ -66,3 +66,4 @@ schema:
       modbus_response_timeout_s: "float(0.1,30)?"
       pty_symlink: "str?"
       on_connect_send: "str?"
+image: "ghcr.io/thaihoang987/addon-usb-manager"
