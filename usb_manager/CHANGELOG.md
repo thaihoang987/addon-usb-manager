@@ -8,6 +8,9 @@
 
 ## Unreleased
 
+- Add ready-to-edit UART, Modbus and PTY templates, Vietnamese/English settings and Home Assistant time synchronization.
+- Shorten interface instructions.
+
 - Add a shared str() translation layer for static and dynamic UI text, accessible labels and confirmation dialogs; keep device data unchanged.
 
 - Redesign the dashboard with live connection counters, responsive navigation, searchable port cards and a clearer configuration editor.

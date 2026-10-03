@@ -30,6 +30,9 @@ import socket
 import struct
 import threading
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import urllib.request
 from collections import deque
 from difflib import SequenceMatcher
 
@@ -47,6 +50,61 @@ SPY_HTTP_PORT = 8099
 # dong quay lai quet binh thuong nhu cu.
 LAST_MATCHED_PATH = "/data/last_matched_ports.json"
 _last_matched_lock = threading.Lock()
+
+
+
+# The add-on shares the HA host clock. Read HA's configured timezone via the
+# Supervisor proxy; use Supervisor's TZ environment while Core is unavailable.
+_app_time_lock = threading.Lock()
+_app_timezone = "UTC"
+_app_time_source = "host"
+
+def configure_app_time():
+    global _app_timezone, _app_time_source
+    name, source = os.environ.get("TZ", "UTC"), "supervisor_environment"
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        name, source = "UTC", "host"
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if token:
+        try:
+            request = urllib.request.Request("http://supervisor/core/api/config",
+                headers={"Authorization": "Bearer " + token})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                document = json.load(response)
+                candidate = document.get("time_zone") if isinstance(document, dict) else None
+            if isinstance(candidate, str):
+                ZoneInfo(candidate)
+                name, source = candidate, "home_assistant"
+        except (OSError, ValueError, ZoneInfoNotFoundError):
+            # Keep the last confirmed HA timezone if Core is temporarily offline.
+            with _app_time_lock:
+                if _app_time_source == "home_assistant":
+                    return
+    with _app_time_lock:
+        _app_timezone, _app_time_source = name, source
+    os.environ["TZ"] = name
+    if hasattr(time, "tzset"):
+        time.tzset()
+
+def app_time_snapshot():
+    with _app_time_lock:
+        name, source = _app_timezone, _app_time_source
+    epoch = time.time()
+    return {"epoch": epoch, "timezone": name, "source": source,
+            "iso": datetime.fromtimestamp(epoch, ZoneInfo(name)).isoformat(timespec="seconds")}
+
+def _watch_app_time():
+    while True:
+        time.sleep(300)
+        configure_app_time()
+
+class AppTimeFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        with _app_time_lock:
+            name = _app_timezone
+        return datetime.fromtimestamp(record.created, ZoneInfo(name)).strftime(datefmt or "%Y-%m-%d %H:%M:%S %z")
 
 
 def load_options() -> dict:
@@ -1834,7 +1892,8 @@ _event_log: deque = deque(maxlen=_EVENT_LOG_MAXLEN)
 
 def log_event(category: str, port: str | None, message: str) -> None:
     entry = {
-        "ts": time.strftime("%Y-%m-%d %H:%M:%S %z"),
+        "ts": app_time_snapshot()["iso"],
+        "epoch": time.time(),
         "category": category,
         "port": port or "-",
         "message": message,
@@ -2375,28 +2434,23 @@ _SPY_PAGE_HTML = """<!doctype html>
   <button type="button" class="tab-btn" data-tab="tab_log">≡ Nhật ký</button>
 </div>
 
-<button type="button" id="settings_gear_btn" title="Cài đặt trình duyệt (localStorage)"
+<button type="button" id="settings_gear_btn" title="Cài đặt"
   style="position:fixed; top:12px; right:12px; width:auto; margin-top:0; padding:8px 10px; z-index:100;
     background:#1c1f26; border:1px solid #333842; font-size:1.1rem; border-radius:6px;">⚙️</button>
 <div id="addon_version_label" style="position:fixed; top:60px; right:14px; z-index:90; font-size:0.7rem; color:#666;"></div>
 
 <div id="settings_panel" style="display:none; position:fixed; top:54px; right:12px; width:300px; z-index:100;
   background:#161a20; border:1px solid #333842; border-radius:8px; padding:16px; box-shadow:0 4px 16px rgba(0,0,0,0.4);">
-  <h2 style="margin-top:0; font-size:0.95rem;">Cài đặt trình duyệt</h2>
-  <p style="color:#9aa0a6; font-size:0.8rem;">
-    Dữ liệu lưu TRONG TRÌNH DUYỆT NÀY (<code>localStorage</code>) — riêng
-    biệt với dữ liệu trên server (ghi chú port ảo/USB, thiết bị "Không còn
-    cắm") nên nút bên dưới KHÔNG đụng tới những thứ đó.
-  </p>
-  <div id="storage_usage_info" style="font-size:0.85rem; margin:10px 0; line-height:1.6;">Đang tính...</div>
-  <button type="button" id="clear_comm_storage_btn" style="background:#4a1f1f; color:#ff8080; width:100%;">
-    🗑 Xoá kết quả/log đã lưu
-  </button>
-  <p style="color:#9aa0a6; font-size:0.75rem; margin-top:8px;">
-    Chỉ xoá kết quả quét + log "Gửi lặp lại" (tab Communication) đã lưu tạm
-    trong trình duyệt. <b>KHÔNG</b> xoá ghi chú thiết bị Local PC, ghi chú
-    port ảo/USB trên server, hay thiết bị "Không còn cắm".
-  </p>
+  <h2 style="margin-top:0">Cài đặt</h2>
+  <label for="ui_language">Ngôn ngữ</label>
+  <select id="ui_language" data-no-translate><option value="vi">Tiếng Việt</option><option value="en">English</option></select>
+  <label>Giờ Home Assistant</label>
+  <div id="app_clock" data-no-translate>—</div>
+  <small id="app_timezone" data-no-translate>—</small>
+  <hr style="border-color:#263447;margin:18px 0">
+  <div id="storage_usage_info">Đang tính...</div>
+  <button type="button" id="clear_comm_storage_btn">Xóa kết quả thử đã lưu</button>
+  <p>Giữ nguyên cấu hình và ghi chú thiết bị.</p>
 </div>
 
 <div id="tab_overview" class="tab-content">
@@ -2415,45 +2469,37 @@ _SPY_PAGE_HTML = """<!doctype html>
 </div>
 
 <div id="tab_getresponse" class="tab-content">
-<h1 style="font-size:1.1rem;">Get Response - Nghe lén / Gửi lệnh thử</h1>
-<p style="color:#9aa0a6; font-size:0.85rem;">
-  Chọn 1 cổng USB thật, để trống "Lệnh gửi" để CHỈ NGHE (spy), hoặc điền lệnh
-  để gửi chủ động rồi xem phản hồi thật. Kết quả hiện ra dạng hex - copy thẳng
-  vào <code>expected_response</code> (thêm tiền tố <code>hex:</code>).
-</p>
+<h1 style="font-size:1.1rem;">Thu phản hồi USB</h1>
+<p>Chọn USB, nghe dữ liệu hoặc gửi lệnh để lấy phản hồi.</p>
 
 <div class="card" style="margin-bottom:16px;">
   <h2>Nguồn kết nối</h2>
   <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
     <input type="radio" name="gr_source" id="gr_source_server" value="server" checked style="width:auto; margin-top:0;">
-    <span>Server (add-on trên Unraid/HA) — cổng cắm ở máy chủ</span>
+    <span>USB trên máy chủ</span>
   </label>
   <label style="display:flex; align-items:center; gap:8px; margin-top:6px;">
     <input type="radio" name="gr_source" id="gr_source_local" value="local" style="width:auto; margin-top:0;">
-    <span>Máy tính đang mở trang này (Local PC, qua trình duyệt)</span>
+    <span>USB trên máy tính này</span>
   </label>
-  <p id="local_pc_support_note" style="color:#9aa0a6; font-size:0.8rem; margin-top:6px;">
-    Cần Chrome/Edge/Opera (không hỗ trợ Firefox/Safari) VÀ truy cập qua
-    HTTPS (Web Serial API bị trình duyệt tự chặn trên HTTP thường) — kiểm
-    tra khi bạn chọn mục này.
-  </p>
+  <p id="local_pc_support_note" style="color:#9aa0a6; font-size:0.8rem; margin-top:6px;">USB trên máy tính cần Chrome/Edge và HTTPS.</p>
   <div id="local_pc_section" style="display:none; margin-top:8px;">
     <div class="row">
       <div><button type="button" id="local_connect_btn">🔌 Chọn cổng USB trên máy này</button></div>
       <div><button type="button" id="local_disconnect_btn" style="background:#333842;">Ngắt kết nối</button></div>
     </div>
     <div id="local_pc_status" style="margin-top:8px; font-size:0.85rem; color:#9aa0a6;">Chưa kết nối.</div>
-    <label>Ghi chú riêng cho cổng này (chỉ lưu trên máy bạn, không gửi lên server)</label>
+    <label>Ghi chú trên máy tính này</label>
     <input id="local_pc_note" type="text" placeholder="vd: relay test trên bàn, chưa gắn tủ điện">
   </div>
 </div>
 
-<label id="device_label">Cổng USB (tự động quét lại mỗi 3s)</label>
+<label id="device_label">Cổng USB</label>
 <select id="device" class="device-select"></select>
 <div id="gr_busy_box" class="busy-box">
   <label style="display:flex; align-items:center; gap:8px; margin-top:0;">
     <input type="checkbox" id="gr_share" style="width:auto; margin-top:0;">
-    <span>Dùng chung nếu cổng đang bận — cố gửi lệnh xen vào kết nối đang chạy (qua port ảo đang ghim; tiến trình ngoài thì mở chung fd, có rủi ro)</span>
+    <span>Dùng chung cổng bận (có thể ảnh hưởng kết nối đang chạy)</span>
   </label>
   <div id="gr_hold_box"></div>
 </div>
@@ -2475,19 +2521,19 @@ _SPY_PAGE_HTML = """<!doctype html>
 
 <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
   <input type="checkbox" id="spy_only" checked style="width:auto; margin-top:0;">
-  <span>CHỈ NGHE (spy) - không gửi gì cả lên bus</span>
+  <span>Chỉ nghe · không gửi lệnh</span>
 </label>
 
 <div id="send_section" style="display:none;">
   <label>Kiểu lệnh gửi</label>
   <select id="protocol">
-    <option value="raw" selected>raw (tự gõ hex/text)</option>
-    <option value="modbus_rtu">modbus_rtu (tự động build khung + tính CRC)</option>
+    <option value="raw" selected>Raw · HEX / text</option>
+    <option value="modbus_rtu">Modbus RTU · tự tính CRC</option>
   </select>
 
   <div id="raw_fields">
     <label>Lệnh gửi</label>
-    <input id="send_command" type="text" placeholder='vd: hex:01 04 00 00 00 02 71 CB   hoặc   text:GET_ID$'>
+    <input id="send_command" type="text" placeholder='hex:01 04 00 00 00 02 71 CB / text:GET_ID$'>
   </div>
 
   <div id="modbus_fields" style="display:none;">
@@ -2499,7 +2545,7 @@ _SPY_PAGE_HTML = """<!doctype html>
       <div><label>Start address</label><input id="start_address" type="number" value="0"></div>
       <div><label>Quantity (FC đọc)</label><input id="quantity" type="number" value="2"></div>
     </div>
-    <label>Value (chỉ dùng cho FC ghi 05/06, để trống nếu là FC đọc)</label>
+    <label>Giá trị ghi (FC05/06)</label>
     <input id="value" type="number" placeholder="để trống nếu dùng FC 01-04">
   </div>
 </div>
@@ -2510,23 +2556,18 @@ _SPY_PAGE_HTML = """<!doctype html>
 </div>
 
 <div id="tab_comm" class="tab-content">
-<h1 style="font-size:1.1rem;">Communication - Khám phá &amp; test thiết bị RTU</h1>
-<p style="color:#9aa0a6; font-size:0.85rem;">
-  Dùng khi thiết bị Modbus RTU không có tài liệu: quét xem bus có bao nhiêu
-  thiết bị (unit_id), rồi quét thanh ghi của 1 địa chỉ cụ thể để mò chức
-  năng. Cũng dùng để đổi địa chỉ mặc định lần đầu, hoặc gửi lặp lại 1 lệnh
-  (raw/AT/UART hay modbus_rtu) kèm log gửi/nhận theo thời gian thực.
-</p>
+<h1 style="font-size:1.1rem;">Công cụ Modbus</h1>
+<p style="color:#9aa0a6; font-size:0.85rem;">Quét địa chỉ, đọc thanh ghi và thử lệnh Modbus.</p>
 
 <div class="card" style="margin-top:12px;">
   <h2>Cổng kết nối</h2>
   <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
     <input type="radio" name="comm_source" id="comm_source_server" value="server" checked style="width:auto; margin-top:0;">
-    <span>Server (add-on trên Unraid/HA)</span>
+    <span>USB trên máy chủ</span>
   </label>
   <label style="display:flex; align-items:center; gap:8px; margin-top:6px;">
     <input type="radio" name="comm_source" id="comm_source_local" value="local" style="width:auto; margin-top:0;">
-    <span>Máy tính đang mở trang này (Local PC, qua trình duyệt)</span>
+    <span>USB trên máy tính này</span>
   </label>
   <div id="comm_local_pc_section" style="display:none; margin-top:8px;">
     <div class="row">
@@ -2534,13 +2575,13 @@ _SPY_PAGE_HTML = """<!doctype html>
       <div><button type="button" id="comm_local_disconnect_btn" style="background:#333842;">Ngắt kết nối</button></div>
     </div>
     <div id="comm_local_pc_status" style="margin-top:8px; font-size:0.85rem; color:#9aa0a6;">Chưa kết nối.</div>
-    <label>Ghi chú riêng cho cổng này (chỉ lưu trên máy bạn)</label>
+    <label>Ghi chú trên máy tính này</label>
     <input id="comm_local_pc_note" type="text" placeholder="vd: relay test trên bàn, chưa gắn tủ điện">
   </div>
 
   <div id="comm_device_row" class="row" style="margin-top:12px;">
     <div style="flex:2 1 260px;">
-      <label id="comm_device_label">Cổng USB (tự động quét lại mỗi 3s)</label>
+      <label id="comm_device_label">Cổng USB</label>
       <select id="comm_device" class="device-select"></select>
     </div>
     <div>
@@ -2555,7 +2596,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 <div id="comm_busy_box" class="busy-box">
   <label style="display:flex; align-items:center; gap:8px; margin-top:0;">
     <input type="checkbox" id="comm_share" style="width:auto; margin-top:0;">
-    <span>Dùng chung nếu cổng đang bận — cố gửi lệnh xen vào kết nối đang chạy (qua port ảo đang ghim; tiến trình ngoài thì mở chung fd, có rủi ro)</span>
+    <span>Dùng chung cổng bận (có thể ảnh hưởng kết nối đang chạy)</span>
   </label>
   <div id="comm_hold_box"></div>
 </div>
@@ -2582,10 +2623,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 
   <div class="card">
     <h2>2. Quét thanh ghi</h2>
-    <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">
-      Mò chức năng 1 thiết bị đã biết Unit ID (từ mục 1) — CHƯA chắc ý
-      nghĩa từng thanh ghi, chỉ khoanh vùng để đọc thử đối chiếu.
-    </p>
+    <p>Quét thanh ghi của thiết bị đã biết Unit ID.</p>
     <div class="row">
       <div><label>Unit ID</label><input id="scan_reg_unit" type="number" value="1"></div>
       <div><label>FC (vd 3,4)</label><input id="scan_reg_fc" type="text" class="narrow" value="3,4"></div>
@@ -2603,12 +2641,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 
   <div class="card">
     <h2>3. Đổi địa chỉ thiết bị</h2>
-    <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">
-      Set address lần đầu — ghi giá trị vào đúng thanh ghi lưu địa chỉ (khác
-      nhau tuỳ hãng, không có cách tự động chung — mò qua mục 2 nếu cần).
-      Đa số dùng FC06 (mặc định) — 1 số thiết bị dùng FC05 (lưu kiểu coil)
-      hoặc FC16 (ghi nhiều thanh ghi), đổi lại nếu FC06 không có phản hồi.
-    </p>
+    <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">Chỉ ghi vào thanh ghi địa chỉ đúng theo tài liệu thiết bị.</p>
     <div class="row">
       <div><label>Unit ID hiện tại</label><input id="setaddr_unit" type="number" value="1"></div>
       <div><label>Function code</label><input id="setaddr_fc" type="number" value="6"></div>
@@ -2627,12 +2660,12 @@ _SPY_PAGE_HTML = """<!doctype html>
     <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">Test raw/AT/UART hoặc modbus_rtu, log ở khung bên dưới.</p>
     <label>Kiểu lệnh</label>
     <select id="repeat_protocol">
-      <option value="raw" selected>raw (tự gõ hex/text - AT command, string...)</option>
+      <option value="raw" selected>Raw · HEX / text</option>
       <option value="modbus_rtu">modbus_rtu</option>
     </select>
     <div id="repeat_raw_fields">
       <label>Lệnh gửi</label>
-      <input id="repeat_send_command" type="text" placeholder='vd: hex:01 04 00 71 CB   hoặc   text:AT+RST'>
+      <input id="repeat_send_command" type="text" placeholder='hex:01 04 00 71 CB / text:AT+RST'>
     </div>
     <div id="repeat_modbus_fields" style="display:none;">
       <div class="row">
@@ -2671,21 +2704,12 @@ _SPY_PAGE_HTML = """<!doctype html>
 </div>
 
 <div id="tab_log" class="tab-content">
-<h1 style="font-size:1.1rem;">Log - Kết nối &amp; lỗi</h1>
-<p style="color:#9aa0a6; font-size:0.85rem;">
-  Ghi lại khi nào từng port ảo mất/có lại kết nối USB, client TCP vào/ra, và
-  các lỗi cần biết (cấu hình sai, không mở được port...). Chỉ lưu tạm trong
-  bộ nhớ add-on (mất khi restart container) — log đầy đủ, vĩnh viễn vẫn xem
-  được qua tab Log của add-on trên Supervisor.
-</p>
+<h1 style="font-size:1.1rem;">Nhật ký hoạt động</h1>
+<p style="color:#9aa0a6; font-size:0.85rem;">Theo dõi kết nối và lỗi gần đây.</p>
 
 <div class="card" style="margin-bottom:16px;">
   <h2>Test kết nối nhanh</h2>
-  <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">
-    Add-on tự kết nối TCP tới chính port ảo đó (127.0.0.1) để xác nhận bridge
-    đang mở và chấp nhận kết nối — không đụng gì tới thiết bị USB thật phía
-    sau.
-  </p>
+
   <div id="port_test_list"><i>Đang tải...</i></div>
 </div>
 
@@ -2709,6 +2733,26 @@ _SPY_PAGE_HTML = """<!doctype html>
 </div>
 
 <script>
+let appTime=null;
+function formatAppTime(epoch=null,onlyTime=false){
+  if(!appTime)return '—';
+  const date=new Date(epoch===null?(appTime.epoch*1000+(performance.now()-appTime.received)):epoch*1000);
+  const locale=USBManagerI18n.getLanguage()==='en'?'en-GB':'vi-VN';
+  return new Intl.DateTimeFormat(locale,{timeZone:appTime.timezone,...(onlyTime?{}:{year:'numeric',month:'2-digit',day:'2-digit'}),hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(date);
+}
+async function syncAppTime(){
+  try{const response=await fetch('api/app_time',{cache:'no-store'});if(!response.ok)return;appTime={...await response.json(),received:performance.now()};updateAppClock();}catch(e){}
+}
+function updateAppClock(){
+  document.getElementById('app_clock').textContent=formatAppTime();
+  document.getElementById('app_timezone').textContent=appTime?appTime.timezone+' · '+str(appTime.source==='home_assistant'?'Home Assistant':'Giờ máy chủ'):'—';
+}
+const languageSelect=document.getElementById('ui_language');
+languageSelect.value=USBManagerI18n.getLanguage();
+languageSelect.addEventListener('change',()=>{USBManagerI18n.setLanguage(languageSelect.value);updateAppClock();});
+syncAppTime();setInterval(syncAppTime,60000);setInterval(updateAppClock,1000);
+
+
 function showTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -2937,7 +2981,7 @@ async function loadUsbDevices() {
       let rowStyle = '';
       if (d.unavailable) {
         statusTxt = 'Không còn cắm (unavailable)';
-        if (d.last_seen) statusTxt += ' — thấy lần cuối ' + new Date(d.last_seen * 1000).toLocaleString('vi-VN');
+        if (d.last_seen) statusTxt += ' — thấy lần cuối ' + formatAppTime(d.last_seen);
         rowStyle = ' style="opacity:0.55;"';
       } else if (d.claimed_by) {
         // note_store === 'port' cho truong hop nay - ghi chu dung CHUNG voi
@@ -3108,7 +3152,7 @@ async function loadMqttStatus() {
       out.innerHTML = `🔴 MQTT: Mất kết nối tới ${s.host}:${s.port} - entity HA sẽ không cập nhật`;
       out.style.color = '#ff6b6b';
     } else {
-      out.innerHTML = '⚪ MQTT: Chưa cấu hình (điền MQTT host trong tab Cấu hình nếu muốn tạo entity HA)';
+      out.innerHTML = '⚪ MQTT: Chưa cấu hình';
       out.style.color = '#9aa0a6';
     }
   } catch (e) {
@@ -3797,10 +3841,9 @@ function updateStorageUsageInfo() {
   const { commBytes, noteBytes, otherBytes } = computeLocalStorageUsage();
   const total = commBytes + noteBytes + otherBytes;
   document.getElementById('storage_usage_info').innerHTML = `
-    Tổng dung lượng đang dùng: <b>${fmtBytesSettings(total)}</b><br>
-    &nbsp;&nbsp;- Kết quả/log Communication: ${fmtBytesSettings(commBytes)}<br>
-    &nbsp;&nbsp;- Ghi chú thiết bị Local PC: ${fmtBytesSettings(noteBytes)}
-    ${otherBytes ? '<br>&nbsp;&nbsp;- Khác: ' + fmtBytesSettings(otherBytes) : ''}
+    ${escHtml(str('Dung lượng: {size}',{size:fmtBytesSettings(total)}))}<br>
+    ${escHtml(str('Kết quả thử: {size}',{size:fmtBytesSettings(commBytes)}))}<br>
+    ${escHtml(str('Ghi chú trên máy: {size}',{size:fmtBytesSettings(noteBytes)}))}
   `;
 }
 
@@ -3812,7 +3855,7 @@ document.getElementById('settings_gear_btn').addEventListener('click', () => {
 });
 
 document.getElementById('clear_comm_storage_btn').addEventListener('click', () => {
-  if (!uiConfirm('Xoá toàn bộ kết quả/log đã lưu của tab Communication?\\n\\n(KHÔNG ảnh hưởng ghi chú thiết bị Local PC, KHÔNG ảnh hưởng ghi chú/dữ liệu trên server, KHÔNG ảnh hưởng thiết bị "Không còn cắm".)')) return;
+  if (!uiConfirm('Xóa kết quả thử đã lưu? Giữ nguyên cấu hình và ghi chú.')) return;
   try {
     localStorage.removeItem(COMM_STORAGE_KEY);
   } catch (e) { /* im lặng */ }
@@ -3841,7 +3884,7 @@ async function doRepeatSend() {
   } else {
     params.sendCommand = document.getElementById('repeat_send_command').value || null;
   }
-  const ts = new Date().toLocaleTimeString('vi-VN');
+  const ts = formatAppTime(null,true);
   const row = document.createElement('tr');
   try {
     let data;
@@ -3921,7 +3964,7 @@ async function loadEventLog() {
     }
     body.innerHTML = filtered.map(e => `
       <tr class="log-${escAttr(e.category)}">
-        <td>${escHtml(e.ts)}</td>
+        <td>${escHtml(e.epoch?formatAppTime(e.epoch):e.ts)}</td>
         <td><span class="log-badge ${escAttr(e.category)}">${EVENT_CATEGORY_LABEL[e.category] || escHtml(e.category)}</span></td>
         <td>${escHtml(e.port)}</td>
         <td>${escHtml(e.message)}</td>
@@ -4000,7 +4043,7 @@ setInterval(loadPortTestList, 10000);
 
 _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
   <div class="section-heading"><div><span class="eyebrow">THIẾT BỊ &amp; KẾT NỐI</span><h1>Cổng của bạn</h1></div><span id="cfg_count" class="count-badge">0 cổng</span></div>
-  <p class="note">Nhận diện bằng phản hồi → gán thiết bị đúng → xuất TCP cố định. Cấu hình được lưu trên addon, giữ qua restart và cập nhật.</p>
+  <p class="note">USB đúng thiết bị → cổng TCP cố định.</p>
   <div class="cfg-toolbar cfg-actions">
     <button id="cfg_add" type="button">＋ Thêm port</button>
     <button id="cfg_reload" type="button">Tải lại</button>
@@ -4013,31 +4056,32 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
   <div class="port-filter"><input id="cfg_search" type="search" aria-label="Tìm cổng" placeholder="Tìm theo tên, ID hoặc cổng TCP…"><select id="cfg_filter" aria-label="Lọc cổng"><option value="all">Tất cả cổng</option><option value="enabled">Đang bật</option><option value="disabled">Đã tắt</option></select></div>
   <div id="cfg_ports"></div>
   <details class="card cfg-settings"><summary>Cài đặt chung · Quét USB, MQTT, log</summary>
-    <div class="cfg-toolbar"><label for="cfg_exclude_device">Chọn USB cần loại trừ</label><select id="cfg_exclude_device" style="width:min(600px,100%)"></select><button id="cfg_exclude_add" type="button">Thêm vào loại trừ</button><button id="cfg_exclude_refresh" type="button">Quét danh sách USB</button></div>
+    <div class="cfg-toolbar"><label for="cfg_exclude_device">Loại trừ USB</label><select id="cfg_exclude_device" style="width:min(600px,100%)"></select><button id="cfg_exclude_add" type="button">Thêm vào loại trừ</button><button id="cfg_exclude_refresh" type="button">Quét danh sách USB</button></div>
     <div id="cfg_globals" class="cfg-grid"></div>
-    <p>Danh sách loại trừ: mỗi dòng một đường dẫn ổn định by-id hoặc by-path. Các thiết bị này sẽ không được dò tự động.</p>
-    <p>Mật khẩu MQTT để trống sẽ giữ mật khẩu đã lưu. Chọn “Xóa mật khẩu” nếu muốn bỏ.</p>
+    <p>USB loại trừ sẽ không được dò tự động.</p>
+    <p>Để trống để giữ mật khẩu MQTT.</p>
     <label><input id="cfg_clear_password" type="checkbox"> Xóa mật khẩu MQTT đã lưu</label>
-    <p>Thời gian chờ USB chỉ dùng khi addon khởi động. MQTT và các cài đặt còn lại được áp dụng khi lưu.</p>
+    <p></p>
   </details>
   <dialog id="cfg_editor" class="card">
     <form id="cfg_form">
       <h2 id="cfg_editor_title">Thêm port</h2>
-      <p>ID cố định giữ liên kết MQTT và lịch sử nhận diện. Dùng “Tên hiển thị” để đổi tên port đã có.</p>
+      <div id="cfg_template_box"><label for="cfg_template">Tạo từ mẫu</label><select id="cfg_template"></select><p id="cfg_template_note"></p></div>
+      <p>ID giữ cố định. Bạn có thể đổi tên hiển thị.</p>
       <h3 class="step-heading"><span>01</span> Cổng &amp; kết nối</h3><div id="cfg_basic" class="cfg-grid"></div>
       <h3 class="step-heading"><span>02</span> Nhận diện thiết bị</h3>
-      <p>Nhập lệnh và dấu hiệu phản hồi đặc trưng. HEX dùng <code>hex:0104</code>; văn bản dùng <code>text:GET_ID$</code>.</p>
+      <p>Lệnh và phản hồi dùng <code>hex:0104</code>hoặc <code>text:GET_ID$</code>.</p>
       <div id="cfg_identity" class="cfg-grid"></div>
-      <p class="note">Hai phản hồi là điều kiện HOẶC. Một dấu hiệu quá ngắn có thể khớp nhiều thiết bị; dữ liệu đo thay đổi cũng có thể làm mất khớp. Với Modbus, để trống cả hai phản hồi để kiểm CRC + địa chỉ + mã hàm.</p>
+      <p class="note">Khớp một trong hai phản hồi. Modbus để trống: kiểm CRC, Unit ID và mã hàm.</p>
       <details><summary>03 · Tùy chọn nâng cao</summary><div id="cfg_advanced" class="cfg-grid"></div></details>
       <details><summary>Kiểm tra quy tắc với phản hồi đã thu</summary>
-        <p>Dán phản hồi từ Get Response. Phép kiểm tra này chỉ so khớp dữ liệu, không gửi lệnh ra USB.</p>
+        <p>Dán phản hồi để kiểm tra. Không gửi lệnh USB.</p>
         <label for="cfg_response">Phản hồi thực tế (hex:… hoặc text:…)</label><textarea id="cfg_response" rows="3"></textarea>
         <button id="cfg_check" type="button">Kiểm tra so khớp</button><p id="cfg_check_result" role="status"></p>
       </details>
       <p id="cfg_editor_error" class="err" role="alert"></p>
       <div class="cfg-toolbar"><button type="submit">Giữ thay đổi port</button><button id="cfg_cancel" type="button">Hủy</button></div>
-      <p>Nhấn “Lưu và áp dụng” ở danh sách để ghi cấu hình lên addon.</p>
+      <p>Lưu và áp dụng ở danh sách cổng.</p>
     </form>
   </dialog>
 </div>
@@ -4093,9 +4137,29 @@ _CONFIG_UI_SCRIPT = r"""
   const clone = value => JSON.parse(JSON.stringify(value));
   let state=null, dirty=false, editIndex=-1, pollTimer=null, applying=false;
   const portDefaults={name:'',friendly_name:'',enabled:true,protocol:'raw',baud:9600,unit_id:1,function_code:3,start_address:0,quantity:1,value:0,send_command:'',send_command_2:'',expected_response:'',expected_response_2:'',match_mode:'contains',fuzzy_threshold:80,output_mode:'tcp',tcp_port:6001,mbap_rtu_bridge:false,modbus_response_timeout_s:1,pty_symlink:'',on_connect_send:''};
-  const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','number',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6010)','number',6001,6010],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
+
+  const templates={
+    blank:{label:'Tùy chỉnh',note:'Tự nhập thông số thiết bị.',options:{}},
+    uart:{label:'UART → TCP',note:'Sửa lệnh và phản hồi riêng của thiết bị.',options:{protocol:'raw',baud:115200,send_command:'text:GET_ID$',expected_response:'',output_mode:'tcp'}},
+    passive:{label:'UART · chỉ nghe → TCP',note:'Nhập dấu hiệu nhận diện trong dữ liệu thiết bị tự gửi.',options:{protocol:'raw',baud:9600,send_command:'',expected_response:'',output_mode:'tcp'}},
+    modbus:{label:'Modbus TCP ↔ RTU',note:'Đặt đúng Unit ID và thanh ghi đọc.',options:{protocol:'modbus_rtu',baud:9600,unit_id:1,function_code:3,start_address:0,quantity:1,output_mode:'tcp',mbap_rtu_bridge:true}},
+    passthrough:{label:'Modbus RTU qua TCP',note:'Client gửi khung RTU, không chuyển đổi Modbus TCP.',options:{protocol:'modbus_rtu',baud:9600,unit_id:1,function_code:3,start_address:0,quantity:1,output_mode:'tcp',mbap_rtu_bridge:false}},
+    pty:{label:'UART → PTY',note:'Nhập đường dẫn PTY và phản hồi nhận diện.',options:{protocol:'raw',baud:9600,output_mode:'pty',pty_symlink:'/dev/usb-manager-device'}}
+  };
+  function templateDraft(key){
+    const next=6001+Array.from({length:10},(_,i)=>i).find(i=>!state.options.ports.some(p=>p.output_mode==='tcp'&&p.tcp_port===6001+i));
+    return {...portDefaults,...templates[key].options,tcp_port:Number.isFinite(next)?next:6001};
+  }
+  function fillEditor(value){
+    fields('cfg_basic',basic,value,'cp_');fields('cfg_identity',identity,value,'cp_');fields('cfg_advanced',advanced,value,'cp_');
+    $('cp_name').readOnly=editIndex>=0;
+    for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode'])$('cp_'+key).onchange=visibility;
+    visibility();
+  }
+
+  const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','number',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6010)','number',6001,6010],['pty_symlink','Đường dẫn PTY','text'],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
   const identity=[['send_command','Lệnh nhận diện (Raw)','text'],['unit_id','Địa chỉ Modbus','number',1,247],['function_code','Mã hàm Modbus','number',1,127],['start_address','Địa chỉ bắt đầu','number',0,65535],['quantity','Số lượng','number',1,2000],['value','Giá trị ghi (FC05/06)','number',0,65535],['expected_response','Phản hồi nhận diện 1','textarea'],['expected_response_2','Phản hồi nhận diện 2 (tùy chọn)','textarea'],['match_mode','Cách so khớp',['contains','exact','startswith','fuzzy']]];
-  const advanced=[['send_command_2','Lệnh dự phòng','text'],['fuzzy_threshold','Ngưỡng fuzzy (%)','number',1,100],['probe_timeout_s','Timeout dò (giây; trống = mặc định)','number',.05,30],['rescan_interval_s','Chu kỳ dò lại (giây; trống = mặc định)','number',1,3600],['modbus_response_timeout_s','Timeout phản hồi Modbus TCP (giây)','number',.1,30],['pty_symlink','Đường dẫn PTY','text'],['on_connect_send','Dữ liệu chào client TCP (tùy chọn)','text']];
+  const advanced=[['send_command_2','Lệnh dự phòng','text'],['fuzzy_threshold','Ngưỡng fuzzy (%)','number',1,100],['probe_timeout_s','Timeout dò (giây; trống = mặc định)','number',.05,30],['rescan_interval_s','Chu kỳ dò lại (giây; trống = mặc định)','number',1,3600],['modbus_response_timeout_s','Timeout phản hồi Modbus TCP (giây)','number',.1,30],['on_connect_send','Dữ liệu chào client TCP (tùy chọn)','text']];
   const globals=[['loglevel','Mức log',['error','warning','info','debug']],['scan_glob','Mẫu quét USB','text'],['exclude_usb','USB loại trừ (mỗi dòng một đường dẫn)','textarea'],['settle_delay_s','Chờ USB khi khởi động (giây)','number',0,120],['default_probe_timeout_s','Timeout dò mặc định (giây)','number',.05,30],['default_rescan_interval_s','Chu kỳ dò mặc định (giây)','number',1,3600],['passive_listen_s','Thời gian nghe trước khi gửi (giây)','number',0,30],['mqtt_host','MQTT host (trống = tự động)','text'],['mqtt_port','MQTT port','number',1,65535],['mqtt_username','MQTT username','text'],['mqtt_password','Mật khẩu MQTT mới','password']];
   async function api(path,body) {
     const response=await fetch(path,{cache:'no-store',...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});
@@ -4104,7 +4168,7 @@ _CONFIG_UI_SCRIPT = r"""
     return result;
   }
   function status(message,error=false) {$('cfg_status').textContent=str(message);$('cfg_status').className=error?'err':'';}
-  function markDirty() {dirty=true;status('Có thay đổi chưa lưu. Lưu sẽ dò lại các port bị sửa; client TCP của các port đó cần kết nối lại.');}
+  function markDirty() {dirty=true;status('Có thay đổi chưa lưu. Cổng bị sửa sẽ kết nối lại.');}
   function fields(container,defs,values,prefix) {
     $(container).replaceChildren();
     for(const [key,label,type,min,max] of defs) {
@@ -4151,11 +4215,13 @@ _CONFIG_UI_SCRIPT = r"""
   function edit(index) {
     if(applying)return;
     editIndex=index;
-    const next=6001+Array.from({length:10},(_,i)=>i).find(i=>!state.options.ports.some(p=>p.output_mode==='tcp'&&p.tcp_port===6001+i));
-    const value=index<0?{...portDefaults,tcp_port:Number.isFinite(next)?next:6001}:{...portDefaults,...state.options.ports[index]};
-    fields('cfg_basic',basic,value,'cp_');fields('cfg_identity',identity,value,'cp_');fields('cfg_advanced',advanced,value,'cp_');
-    $('cp_name').readOnly=index>=0;
-    $('cfg_editor_title').textContent=index<0?'Thêm port':'Sửa port '+value.name;
+    const value=index<0?templateDraft('blank'):{...portDefaults,...state.options.ports[index]};
+    fillEditor(value);
+    $('cfg_template_box').hidden=index>=0;
+    $('cfg_template').replaceChildren();
+    for(const [key,t] of Object.entries(templates)){const option=document.createElement('option');option.value=key;option.textContent=str(t.label);$('cfg_template').append(option);}
+    $('cfg_template_note').textContent=str(templates.blank.note);
+    $('cfg_editor_title').textContent=index<0?str('Thêm port'):str('Sửa port {name}',{name:value.name});
     $('cfg_editor_error').textContent='';$('cfg_check_result').textContent='';$('cfg_response').value='';
     for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode'])$('cp_'+key).onchange=visibility;
     visibility();$('cfg_editor').showModal();
@@ -4171,8 +4237,8 @@ _CONFIG_UI_SCRIPT = r"""
       visible++;
       const card=document.createElement('div');card.className='card cfg-port'+(p.enabled?'':' cfg-disabled');
       const info=document.createElement('div');const title=document.createElement('h3');title.dataset.noTranslate='';title.textContent=p.friendly_name||p.name;
-      const line=document.createElement('p');line.dataset.noTranslate='';line.textContent=p.name+' · '+p.protocol+' · '+p.baud+' baud · '+(p.output_mode==='pty'?p.pty_symlink:':'+p.tcp_port)+(p.mbap_rtu_bridge?' · Modbus TCP':'')+' · '+(p.enabled?'Đã bật':'Đã tắt');
-      const rule=document.createElement('p');rule.dataset.noTranslate='';rule.textContent=str('Nhận diện: ')+(p.expected_response||p.expected_response_2||'CRC + địa chỉ + mã hàm Modbus');
+      const line=document.createElement('p');line.dataset.noTranslate='';line.textContent=p.name+' · '+p.protocol+' · '+p.baud+' baud · '+(p.output_mode==='pty'?p.pty_symlink:':'+p.tcp_port)+(p.mbap_rtu_bridge?' · Modbus TCP':'');
+      const rule=document.createElement('p');const ruleLabel=document.createElement('span');ruleLabel.textContent=str('Nhận diện:');const payload=document.createElement('span');if(p.expected_response||p.expected_response_2)payload.dataset.noTranslate='';payload.textContent=' '+(p.expected_response||p.expected_response_2||str('CRC + địa chỉ + mã hàm Modbus'));rule.append(ruleLabel,payload);
       const badge=document.createElement('span');badge.className='port-state '+(p.enabled?'on':'off');badge.textContent=str(p.enabled?'Đang bật':'Đã tắt');
       const endpoint=document.createElement('strong');endpoint.className='port-endpoint';endpoint.textContent=p.output_mode==='pty'?'PTY':'TCP '+p.tcp_port;
       info.append(badge,title,endpoint,line,rule);const buttons=document.createElement('div');buttons.className='cfg-toolbar';
@@ -4241,6 +4307,7 @@ _CONFIG_UI_SCRIPT = r"""
     if(editIndex<0)state.options.ports.push(p);else state.options.ports[editIndex]=p;
     $('cfg_editor').close();markDirty();renderPorts();
   };
+  $('cfg_template').onchange=()=>{const key=$('cfg_template').value,current=readPort();fillEditor({...templateDraft(key),name:current.name,friendly_name:current.friendly_name});$('cfg_template_note').textContent=str(templates[key].note);};
   $('cfg_add').onclick=()=>edit(-1);$('cfg_cancel').onclick=()=>$('cfg_editor').close();
   $('cfg_reload').onclick=()=>{if(!dirty||uiConfirm('Bỏ thay đổi chưa lưu và tải cấu hình trên addon?'))load();};
   $('cfg_clear_password').onchange=markDirty;
@@ -4250,6 +4317,7 @@ _CONFIG_UI_SCRIPT = r"""
     const values=$('cg_exclude_usb').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
     if(!values.includes(path)){values.push(path);$('cg_exclude_usb').value=values.join('\n');markDirty();}
   };
+  document.addEventListener('usb-manager-language',()=>{if(state)renderPorts();});
   $('cfg_search').oninput=()=>{if(state)renderPorts();};
   $('cfg_filter').onchange=()=>{if(state)renderPorts();};
   $('cfg_editor').addEventListener('click',e=>{if(e.target===$('cfg_editor')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('cfg_editor').close();}});
@@ -4291,9 +4359,382 @@ _I18N_UI_SCRIPT = r"""
 // All presentation text passes through str(); protocol data and input values
 // stay untouched. Translation catalogs can be registered without changing UI code.
 const USBManagerI18n = (() => {
-  const catalogs = {vi: Object.create(null)};
+  const catalogs = {
+  "vi": {
+    "Copy": "Sao chép",
+    "Protocol": "Giao thức",
+    "TCP port": "Cổng TCP",
+    "Get Response": "Thu phản hồi",
+    "Communication": "Công cụ Modbus",
+    "Unit ID": "Unit ID",
+    "Function code": "Mã hàm",
+    "Start address": "Địa chỉ bắt đầu",
+    "Quantity": "Số lượng",
+    "Raw UART": "UART thô",
+    "Device control center": "Quản lý thiết bị",
+    "▶ Test": "▶ Kiểm tra"
+  },
+  "en": {
+    "(không có phản hồi)": "(no response)",
+    "0 cổng": "0 ports",
+    "03 · Tùy chọn nâng cao": "03 · Advanced settings",
+    "1. Quét Unit ID": "1. Scan unit IDs",
+    "2. Quét thanh ghi": "2. Scan registers",
+    "3. Đổi địa chỉ thiết bị": "3. Change device address",
+    "4. Gửi lặp lại + log": "4. Repeat commands",
+    "Address thanh ghi lưu địa chỉ": "Address register",
+    "Address từ": "Address from",
+    "Bus RTU có bao nhiêu thiết bị, địa chỉ bao nhiêu.": "Find devices on the RTU bus.",
+    "Bản sao không hợp lệ.": "Invalid backup.",
+    "Bản sao quá lớn (tối đa 1 MiB).": "Backup is too large (maximum 1 MiB).",
+    "Bật": "Enable",
+    "Bật port": "Enable port",
+    "Bắt đầu bằng": "Starts with",
+    "Bắt đầu với thiết bị đầu tiên": "Add your first device",
+    "Bỏ thay đổi chưa lưu và tải cấu hình trên addon?": "Discard unsaved changes and reload?",
+    "Chu kỳ dò mặc định (giây)": "Default rescan interval (s)",
+    "Chu kỳ dò lại (giây; trống = mặc định)": "Rescan interval (s; blank = default)",
+    "Chuyển Modbus TCP ↔ RTU": "Convert Modbus TCP ↔ RTU",
+    "Chưa có port ảo. Mở tab Cấu hình để thêm port.": "No ports yet. Add one in Configuration.",
+    "Chưa có sự kiện nào.": "No events yet.",
+    "Chưa dùng": "Available",
+    "Chưa kết nối cổng USB Local PC nào.": "Connect a USB device on this computer first.",
+    "Chưa kết nối cổng USB local nào.": "Connect a USB device on this computer first.",
+    "Chưa kết nối.": "Not connected.",
+    "Chưa lưu mật khẩu": "No saved password",
+    "Chỉ ghi vào thanh ghi địa chỉ đúng theo tài liệu thiết bị.": "Use the address register specified by the device manufacturer.",
+    "Chỉ nghe · không gửi lệnh": "Listen only · do not send",
+    "Chọn cổng USB trên máy này": "Select USB on this computer",
+    "Chờ USB khi khởi động (giây)": "USB startup delay (s)",
+    "Chờ phản hồi (giây)": "Response timeout (s)",
+    "Chứa chuỗi": "Contains",
+    "Client gửi khung RTU, không chuyển đổi Modbus TCP.": "Clients send RTU frames without Modbus TCP conversion.",
+    "Client đang kết nối": "Connected clients",
+    "Cài đặt": "Settings",
+    "Cài đặt chung · Quét USB, MQTT, log": "General settings · USB, MQTT, logging",
+    "Cách so khớp": "Match mode",
+    "Có thay đổi chưa lưu. Cổng bị sửa sẽ kết nối lại.": "Unsaved changes. Modified ports will reconnect.",
+    "Công cụ Modbus": "Modbus tools",
+    "Cấu hình thiết bị": "Device configuration",
+    "Cần truy cập qua HTTPS (hoặc localhost) - trang hiện KHÔNG ở secure context.": "Use HTTPS or localhost for browser USB access.",
+    "Cần ít nhất một phản hồi nhận diện cho Raw.": "Raw mode needs a device response to match.",
+    "Cổng & kết nối": "Port & connection",
+    "Cổng TCP (6001–6010)": "TCP port (6001–6010)",
+    "Cổng USB": "USB device",
+    "Cổng của bạn": "Your ports",
+    "Cổng kết nối": "Connection",
+    "Cổng đã cấu hình": "Configured ports",
+    "Danh sách port ảo": "Virtual ports",
+    "Danh tính cố định": "Stable device identity",
+    "Dán phản hồi để kiểm tra. Không gửi lệnh USB.": "Paste a response to check it. No USB command is sent.",
+    "Dò lại thiết bị ngay, không cần đợi hết chu kỳ rescan_interval_s": "Find the device again now",
+    "Dùng chung cổng bận (có thể ảnh hưởng kết nối đang chạy)": "Share a busy port (may affect the active connection)",
+    "Dữ liệu chào client TCP (tùy chọn)": "TCP greeting (optional)",
+    "Function code (3 hoặc 4)": "Function code (3 or 4)",
+    "Ghi chú": "Notes",
+    "Ghi chú trên máy tính này": "Notes on this computer",
+    "Ghi chú tự do...": "Add a note…",
+    "Giao thức thiết bị": "Device protocol",
+    "Giá trị ghi (FC05/06)": "Write value (FC05/06)",
+    "Giống toàn bộ": "Exact match",
+    "Giờ Home Assistant": "Home Assistant time",
+    "Giờ máy chủ": "Host clock",
+    "Giữ nguyên cấu hình và ghi chú thiết bị.": "Configuration and device notes are kept.",
+    "Giữ thay đổi port": "Keep port changes",
+    "Gần giống": "Fuzzy match",
+    "Gửi (TX)": "Sent (TX)",
+    "Gửi lệnh & xem phản hồi": "Send & read response",
+    "Gửi lệnh đổi địa chỉ": "Change address",
+    "Hủy": "Cancel",
+    "ID giữ cố định. Bạn có thể đổi tên hiển thị.": "The ID stays fixed. You can change the display name.",
+    "ID port": "Port ID",
+    "ID port cần 1–64 chữ không dấu, số, dấu - hoặc _.": "Use 1–64 letters, numbers, hyphens or underscores for the port ID.",
+    "ID port đã tồn tại.": "This port ID already exists.",
+    "KHÔNG GIAN LÀM VIỆC": "WORKSPACE",
+    "Không còn cắm (unavailable)": "Disconnected",
+    "Không có port ảo TCP nào đang bật.": "No enabled TCP ports.",
+    "Không có USB với đường dẫn ổn định": "No USB device with a stable path",
+    "Không khớp": "No match",
+    "Không nhận được byte nào.": "No data received.",
+    "Không thể thực hiện": "The operation failed.",
+    "Không tìm thấy cổng": "No matching ports",
+    "Không tìm thấy cổng USB nào khớp scan_glob, và chưa có ghi chú nào.": "No USB devices found.",
+    "Không tải được danh sách USB.": "Could not load USB devices.",
+    "Không tải được danh sách port ảo.": "Could not load ports.",
+    "Không tải được log.": "Could not load the log.",
+    "Khớp": "Matched",
+    "Khớp một trong hai phản hồi. Modbus để trống: kiểm CRC, Unit ID và mã hàm.": "Either response can match. Leave Modbus responses blank to check CRC, unit ID and function code.",
+    "Khớp phản hồi thiết bị": "Device response matched",
+    "Kiểm tra quy tắc với phản hồi đã thu": "Check a captured response",
+    "Kiểm tra so khớp": "Check match",
+    "Kiểu lệnh": "Command type",
+    "Kiểu lệnh gửi": "Command type",
+    "Kiểu xuất": "Output",
+    "Kết nối TCP hiện tại": "Active TCP connections",
+    "Kết nối đúng thiết bị. Giữ nguyên cổng TCP.": "The right device. The same TCP port.",
+    "Kết quả": "Results",
+    "Loại": "Type",
+    "Loại trừ (exclude_usb)": "Excluded",
+    "Loại trừ USB": "Exclude USB",
+    "Lưu và áp dụng": "Save & apply",
+    "Lưu và áp dụng ở danh sách cổng.": "Save & apply from the port list.",
+    "Lặp lại mỗi (giây, 0 = chỉ gửi 1 lần)": "Repeat interval (s; 0 = once)",
+    "Lệnh dự phòng": "Fallback command",
+    "Lệnh gửi": "Command",
+    "Lệnh nhận diện (Raw)": "Identification command (Raw)",
+    "Lệnh và phản hồi dùng": "Use",
+    "Lọc cổng": "Filter ports",
+    "Lọc theo loại": "Filter by type",
+    "Lỗi kết nối khi gọi rescan.": "Could not request a rescan.",
+    "Lỗi kết nối:": "Connection error:",
+    "Lỗi:": "Error:",
+    "MQTT host (trống = tự động)": "MQTT host (blank = automatic)",
+    "Modbus RTU · tự tính CRC": "Modbus RTU · automatic CRC",
+    "Mã hàm Modbus": "Modbus function code",
+    "Mẫu quét USB": "USB scan pattern",
+    "Mật khẩu MQTT mới": "New MQTT password",
+    "Mức log": "Log level",
+    "Nghe (Spy)": "Listen",
+    "Nghe được (passive, trước khi gửi):": "Received before sending:",
+    "Nguồn kết nối": "Connection source",
+    "Ngôn ngữ": "Language",
+    "Ngưỡng fuzzy (%)": "Fuzzy threshold (%)",
+    "Ngắt kết nối": "Disconnect",
+    "Nhận (RX)": "Received (RX)",
+    "Nhận diện thiết bị": "Device identification",
+    "Nhận diện:": "Match:",
+    "Nhập bản sao": "Import backup",
+    "Nhập dấu hiệu nhận diện trong dữ liệu thiết bị tự gửi.": "Enter a signature from data the device sends on its own.",
+    "Nhập đường dẫn PTY và phản hồi nhận diện.": "Enter the PTY path and device response signature.",
+    "Nhật ký hoạt động": "Activity log",
+    "Nội dung": "Message",
+    "Phản hồi (hex)": "Response (hex)",
+    "Phản hồi (sau khi gửi):": "Response after sending:",
+    "Phản hồi nhận diện 1": "Response signature 1",
+    "Phản hồi nhận diện 2 (tùy chọn)": "Response signature 2 (optional)",
+    "Phản hồi thực tế (hex:… hoặc text:…)": "Captured response (hex:… or text:…)",
+    "Phản hồi:": "Response:",
+    "Port đang bận": "Port is busy",
+    "Quantity (FC đọc)": "Read quantity",
+    "Quét Unit ID": "Scan unit IDs",
+    "Quét danh sách USB": "Refresh USB devices",
+    "Quét thanh ghi": "Scan registers",
+    "Quét địa chỉ, đọc thanh ghi và thử lệnh Modbus.": "Scan addresses, read registers and test Modbus commands.",
+    "Quản lý cổng ↗": "Manage ports ↗",
+    "Sắp gửi lệnh ghi thanh ghi lên thiết bị THẬT - chắc chắn đúng Unit ID/address/giá trị?": "Write to the device? Check the unit ID, register and value first.",
+    "Số lượng": "Quantity",
+    "Số lần đọc/ghi": "Read / write count",
+    "Sửa": "Edit",
+    "Sửa lệnh và phản hồi riêng của thiết bị.": "Set the device's command and unique response signature.",
+    "Sửa port {name}": "Edit port {name}",
+    "THIẾT BỊ & KẾT NỐI": "DEVICES & CONNECTIONS",
+    "Test kết nối nhanh": "Quick connection test",
+    "Test raw/AT/UART hoặc modbus_rtu, log ở khung bên dưới.": "Send a command and view the response below.",
+    "Thay danh sách port và cài đặt trên form bằng bản sao? Chưa áp dụng tới khi bạn lưu.": "Replace this draft with the backup? Changes apply only after saving.",
+    "Theo dõi kết nối và lỗi gần đây.": "Recent connections and errors.",
+    "Theo dõi kết nối và quản lý thiết bị USB từ một nơi.": "Monitor connections and manage your USB devices.",
+    "Thiết bị": "Device",
+    "Thu phản hồi": "Capture response",
+    "Thu phản hồi USB": "Capture USB response",
+    "Thêm cổng, nhập phản hồi nhận diện và chọn cổng TCP. USB Manager sẽ tự tìm đúng thiết bị.": "Add a port, enter a unique response and select a TCP port.",
+    "Thêm port": "Add port",
+    "Thêm vào loại trừ": "Exclude device",
+    "Thời gian": "Time",
+    "Thời gian nghe (giây)": "Listen duration (s)",
+    "Thời gian nghe trước khi gửi (giây)": "Listen before sending (s)",
+    "Thử tên khác hoặc thay đổi bộ lọc.": "Try another name or change the filter.",
+    "Timeout dò mặc định (giây)": "Default probe timeout (s)",
+    "Timeout dò (giây; trống = mặc định)": "Probe timeout (s; blank = default)",
+    "Timeout mỗi lần thử (giây)": "Timeout per attempt (s)",
+    "Timeout phản hồi Modbus TCP (giây)": "Modbus TCP response timeout (s)",
+    "Trang này chưa chạy qua HTTPS (hoặc localhost) - trình duyệt tự chặn Web Serial API trên HTTP thường.": "Use HTTPS or localhost for browser USB access.",
+    "Trình duyệt không hỗ trợ Web Serial API (chỉ Chrome/Edge/Opera).": "Browser USB requires Chrome, Edge or Opera.",
+    "Trình duyệt không hỗ trợ Web Serial API - chỉ Chrome/Edge/Opera mới có, Firefox/Safari không hỗ trợ.": "Browser USB requires Chrome, Edge or Opera.",
+    "Trạng thái": "Status",
+    "Trả quyền": "Release port",
+    "Tên": "Name",
+    "Tên hiển thị": "Display name",
+    "Tìm cổng": "Search ports",
+    "Tìm theo tên, ID hoặc cổng TCP…": "Search by name, ID or TCP port…",
+    "Tùy chỉnh": "Custom",
+    "Tạo từ mẫu": "Start from a template",
+    "Tải lại": "Reload",
+    "Tất cả": "All",
+    "Tất cả cổng": "All ports",
+    "Tất cả cổng USB đang cắm trên host": "USB devices on the host",
+    "Tắt": "Disable",
+    "Tốc độ hiện tại": "Current rate",
+    "Tổng quan": "Overview",
+    "Tự nhập thông số thiết bị.": "Enter your device settings.",
+    "Tự động dò lại": "Automatically reconnects",
+    "UART · chỉ nghe → TCP": "UART · listen only → TCP",
+    "USB loại trừ (mỗi dòng một đường dẫn)": "Excluded USB devices (one path per line)",
+    "USB loại trừ sẽ không được dò tự động.": "Excluded devices are not probed.",
+    "USB trên máy chủ": "USB on the host",
+    "USB trên máy chủ, gồm cả thiết bị đã loại trừ. Ghi chú tự lưu; quản lý loại trừ trong Cấu hình → Cài đặt chung.": "Host USB devices, including excluded devices. Notes save automatically.",
+    "USB trên máy tính này": "USB on this computer",
+    "USB trên máy tính cần Chrome/Edge và HTTPS.": "Browser USB requires Chrome/Edge and HTTPS.",
+    "USB đã nhận diện": "Matched USB devices",
+    "USB đúng thiết bị → cổng TCP cố định.": "The right USB device → a fixed TCP port.",
+    "Unit ID hiện tại": "Current unit ID",
+    "Unit ID từ": "Unit ID from",
+    "Xoá": "Delete",
+    "Xoá ghi chú/lịch sử của thiết bị này?": "Delete this device's notes and history?",
+    "Xoá ghi chú/lịch sử thiết bị này": "Delete device notes and history",
+    "Xuất bản sao": "Export backup",
+    "Xóa": "Delete",
+    "Xóa kết quả thử đã lưu": "Clear saved test results",
+    "Xóa kết quả thử đã lưu? Giữ nguyên cấu hình và ghi chú.": "Clear saved test results? Configuration and device notes are kept.",
+    "Xóa mật khẩu MQTT đã lưu": "Clear saved MQTT password",
+    "hoặc": "or",
+    "lỗi không rõ": "unknown error",
+    "hex:01 04 00 00 00 02 71 CB / text:GET_ID$": "e.g. hex:01 04 00 00 00 02 71 CB or text:GET_ID$",
+    "hex:01 04 00 71 CB / text:AT+RST": "e.g. hex:01 04 00 71 CB or text:AT+RST",
+    "vd: relay test trên bàn, chưa gắn tủ điện": "e.g. test relay on the workbench",
+    "{count} cổng": "{count} ports",
+    "Đang bật": "Enabled",
+    "Đang chờ thiết bị": "Waiting for device",
+    "Đang kiểm tra MQTT...": "Checking MQTT…",
+    "Đang quét... (có thể mất vài chục giây)": "Scanning…",
+    "Đang test...": "Testing…",
+    "Đang thực hiện...": "Working…",
+    "Đang tính...": "Calculating…",
+    "Đang tải cấu hình…": "Loading configuration…",
+    "Đang tải...": "Loading…",
+    "Đang áp dụng cấu hình…": "Applying configuration…",
+    "Đã ghi cấu hình. Đang áp dụng…": "Configuration saved. Applying…",
+    "Đã gửi (client→serial)": "Sent (client→serial)",
+    "Đã gửi:": "Sent:",
+    "Đã lưu và áp dụng. Các port bị sửa đang tự dò thiết bị.": "Saved and applied. Modified ports are reconnecting.",
+    "Đã nhận (serial→client)": "Received (serial→client)",
+    "Đã tải cấu hình. {count} cổng.": "Configuration loaded. {count} ports.",
+    "Đã tắt": "Disabled",
+    "Đã xuất cấu hình hiện trên form. Bản sao không chứa mật khẩu MQTT.": "Backup exported without the MQTT password.",
+    "Đã có mật khẩu; trống = giữ nguyên": "Password saved; leave blank to keep it",
+    "Đã tắt (disabled)": "Disabled",
+    "Đang dò thiết bị...": "Looking for device…",
+    "Đã ghim, chưa có client nào kết nối": "Device matched · no connected clients",
+    "Đang kết nối ({count} client)": "Connected ({count} clients)",
+    "Đã ghim {device} (pty)": "Matched {device} (PTY)",
+    "Đường dẫn PTY": "PTY path",
+    "Đặt đúng Unit ID và thanh ghi đọc.": "Set the correct unit ID and read register.",
+    "Để trống để giữ mật khẩu MQTT.": "Leave blank to keep the MQTT password.",
+    "Địa chỉ Modbus": "Modbus unit ID",
+    "Địa chỉ MỚI muốn đặt": "New address",
+    "Địa chỉ bắt đầu": "Start address",
+    "đến": "to",
+    "để trống nếu dùng FC 01-04": "leave blank for FC01–04",
+    "↔ Thu phản hồi": "↔ Capture response",
+    "↩ Trả quyền cho port ảo": "↩ Return control to the virtual port",
+    "≡ Nhật ký": "≡ Activity log",
+    "⌁ Công cụ Modbus": "⌁ Modbus tools",
+    "⏸ Dừng lại": "⏸ Stop",
+    "▶ Bắt đầu gửi": "▶ Start sending",
+    "◫ Tổng quan": "◫ Overview",
+    "⚙ Cấu hình": "⚙ Configuration",
+    "⚪ MQTT: Chưa cấu hình": "⚪ MQTT: Not configured",
+    "⚪ MQTT: Không kiểm tra được trạng thái": "⚪ MQTT: Status unavailable",
+    "⚪ Thông tin": "⚪ Info",
+    "⚪ Thông tin khác": "⚪ Other info",
+    "⛔ Lấy quyền port ảo để test": "⛔ Take control for testing",
+    "❌ Lỗi kết nối khi gọi test.": "❌ Could not run the connection test.",
+    "＋ Thêm cổng đầu tiên": "＋ Add your first port",
+    "＋ Thêm port": "＋ Add port",
+    "🔌 Chọn cổng USB trên máy này": "🔌 Select USB on this computer",
+    "🔴 Mất kết nối": "🔴 Disconnected",
+    "🔴 Mất kết nối (USB)": "🔴 Disconnected (USB)",
+    "🗑 Xoá log": "🗑 Clear log",
+    "🛑 Lỗi": "🛑 Error",
+    "🟡 Cảnh báo": "🟡 Warning",
+    "🟢 Kết nối": "🟢 Connected",
+    "🟢 Kết nối (USB)": "🟢 Connected (USB)",
+    "🟢 MQTT: Đã kết nối ({endpoint})": "🟢 MQTT: Connected ({endpoint})",
+    "🔴 MQTT: Mất kết nối tới {endpoint} - entity HA sẽ không cập nhật": "🔴 MQTT: Disconnected from {endpoint}",
+    "Lỗi: {message}": "Error: {message}",
+    "Lỗi kết nối: {message}": "Connection error: {message}",
+    "Không rescan được: {message}": "Could not rescan: {message}",
+    "Đang chờ addon: {message}": "Waiting for add-on: {message}",
+    "Xóa port {name}? Sau khi lưu, TCP của port này sẽ dừng.": "Delete port {name}? Its TCP bridge will stop after saving.",
+    "Tổng dung lượng đang dùng:": "Storage used:",
+    "- Kết quả/log Communication:": "- Test results:",
+    "- Ghi chú thiết bị Local PC:": "- Local device notes:",
+    "- Khác:": "- Other:",
+    "— thấy lần cuối {time}": "— last seen {time}",
+    "⏸ Đang nhường {device} cho test - chưa trả quyền": "⏸ {device} is reserved for testing",
+    "CRC + địa chỉ + mã hàm Modbus": "CRC + unit ID + function code",
+    "Chọn USB, nghe dữ liệu hoặc gửi lệnh để lấy phản hồi.": "Select USB, listen to data or send a command to capture a response.",
+    "Modbus RTU qua TCP": "Modbus RTU over TCP",
+    "Dung lượng: {size}": "Storage: {size}",
+    "Kết quả thử: {size}": "Test results: {size}",
+    "Ghi chú trên máy: {size}": "Local notes: {size}",
+    "Quét thanh ghi của thiết bị đã biết Unit ID.": "Scan registers for a known unit ID.",
+    "FC (vd 3,4)": "Function codes (e.g. 3,4)",
+    "{key}: cần nhập số": "{key}: enter a number",
+    "{key}: phải trong khoảng {low}–{high}": "{key}: use a value between {low} and {high}",
+    "Cấu hình phải là một object": "Configuration must be an object",
+    "Cài đặt không hỗ trợ: {keys}": "Unsupported settings: {keys}",
+    "{key}: cần chuỗi tối đa 4096 ký tự": "{key}: use text up to 4096 characters",
+    "Mức log không hợp lệ": "Invalid log level",
+    "Mẫu quét USB không được trống": "USB scan pattern cannot be empty",
+    "USB loại trừ phải là danh sách đường dẫn /dev/": "USB exclusions must be a list of /dev/ paths",
+    "ports phải là danh sách tối đa 100 port": "Use a list of up to 100 ports",
+    "Mỗi port phải là một object": "Each port must be an object",
+    "Port chứa tùy chọn không hỗ trợ": "Port contains unsupported settings",
+    "ID port: 1–64 chữ không dấu, số, dấu - hoặc _": "Port ID: 1–64 letters, numbers, hyphens or underscores",
+    "Trùng ID port: {name}": "Duplicate port ID: {name}",
+    "{name}: {key} phải là chuỗi tối đa 16384 ký tự": "{name}: {key} must be text up to 16384 characters",
+    "{name}: {key} phải là true/false": "{name}: {key} must be true or false",
+    "{name}: giao thức hoặc kiểu xuất không hợp lệ": "{name}: invalid protocol or output",
+    "{name}: cách so khớp không hợp lệ": "{name}: invalid match mode",
+    "Trùng TCP :{port}": "Duplicate TCP port :{port}",
+    "{name}: đường dẫn PTY phải bắt đầu /dev/ và không trùng": "{name}: use a unique PTY path starting with /dev/",
+    "{name}: cần phản hồi nhận diện cho Raw": "{name}: Raw mode needs a response signature",
+    "{name}: Modbus TCP chỉ dùng với Modbus RTU và xuất TCP": "{name}: Modbus TCP requires Modbus RTU with TCP output",
+    "File cấu hình UI không hợp lệ; hãy khôi phục bản sao lưu": "Invalid UI configuration file; restore a backup",
+    "Đang áp dụng cấu hình trước; vui lòng đợi": "Applying the previous configuration; please wait",
+    "Cấu hình đã thay đổi ở cửa sổ khác; tải lại trước khi sửa": "Configuration changed in another window; reload first",
+    "Thiếu options": "Missing options",
+    "Nội dung phải từ 1 byte tới 1 MiB": "Payload must be between 1 byte and 1 MiB",
+    "Đã áp dụng cấu hình UI #{revision}": "Applied UI configuration #{revision}",
+    "Không áp dụng được cấu hình: {message}": "Could not apply configuration: {message}",
+    "Đã ghim thiết bị {path}": "Matched device {path}",
+    "Chưa tìm thấy thiết bị khớp trong {paths}": "No matching device found in {paths}",
+    "Client TCP {address} đã kết nối": "TCP client {address} connected",
+    "Client TCP {address} đã ngắt kết nối": "TCP client {address} disconnected",
+    "Mất kết nối USB tới {path}: {message}": "USB disconnected from {path}: {message}",
+    "Mất kết nối USB (khi ghi) tới {path}: {message}": "USB disconnected while writing to {path}: {message}",
+    "Mất kết nối USB (pty) tới {path}: {message}": "USB disconnected from PTY {path}: {message}",
+    "Không mở được TCP port {port}: {message}": "Could not open TCP port {port}: {message}",
+    "Không mở được {path}: {message}": "Could not open {path}: {message}",
+    "Lỗi không lường trước: {message}": "Unexpected error: {message}",
+    "Không kết nối được MQTT broker {endpoint}: {message}": "Could not connect to MQTT broker {endpoint}: {message}",
+    "Modbus timeout: đóng TCP để tránh ghép phản hồi trễ vào lệnh mới": "Modbus timeout: TCP closed to discard delayed responses",
+    "Test kết nối TCP :{port} thành công ({ms}ms)": "TCP connection test :{port} passed ({ms}ms)",
+    "Test kết nối TCP :{port} thất bại: {message}": "TCP connection test :{port} failed: {message}",
+    "Rescan thủ công yêu cầu - đóng kết nối {path}, dò lại ngay": "Rescan requested: reconnecting {path}",
+    "Trả quyền test: port ảo dò/ghim lại thiết bị": "Testing ended: reconnecting the virtual port",
+    "Lấy quyền test: tạm ngắt port ảo, nhường {device} cho Get Response/Communication": "Device {device} reserved for testing",
+    "Giữ quyền test quá {minutes} phút - tự trả quyền cho port ảo": "Test reservation exceeded {minutes} minutes: control restored",
+    "Khớp · {count} byte": "Matched · {count} bytes",
+    "Không khớp · {count} byte": "No match · {count} bytes"
+  }
+};
   let language='vi';
   try {language=localStorage.getItem('usb_manager_language')||'vi';}catch(e){}
+  if(!['vi','en'].includes(language))language='vi';
+  document.documentElement.lang=language;
+  const patternCache=Object.create(null);
+  function translationPatterns(locale){
+    if(patternCache[locale])return patternCache[locale];
+    return patternCache[locale]=Object.entries(catalogs[locale]||{}).filter(([key])=>key.includes('{')).map(([template,target])=>{
+      const names=[];
+      const pattern=template.split(/(\{\w+\})/g).map(chunk=>{
+        if(/^\{\w+\}$/.test(chunk)){names.push(chunk.slice(1,-1));return '(.+?)';}
+        return chunk.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      }).join('');
+      return {regex:new RegExp('^'+pattern+'$'),target,names};
+    });
+  }
   const originals=new WeakMap();
   const rendered=new Map();
   function str(message, values={}) {
@@ -4301,8 +4742,18 @@ const USBManagerI18n = (() => {
     const key=source.trim();
     if(!key)return source;
     const catalog=catalogs[language]||{};
-    const translated=Object.prototype.hasOwnProperty.call(catalog,key)?catalog[key]:key;
-    const output=String(translated).replace(/\{(\w+)\}/g,(match,name)=>Object.prototype.hasOwnProperty.call(values,name)?String(values[name]):match);
+    let translated=Object.prototype.hasOwnProperty.call(catalog,key)?catalog[key]:key;
+    let substitutions=values;
+    // Runtime statuses may arrive from Python with device IDs/counts filled in.
+    // Match catalog templates while preserving the source text and raw values.
+    if(translated===key && !Object.prototype.hasOwnProperty.call(catalog,key)){
+      for(const {regex,target,names} of translationPatterns(language)){
+        const match=key.match(regex);
+        if(match){translated=target;substitutions={...values};names.forEach((name,i)=>substitutions[name]=match[i+1]);break;}
+      }
+    }
+    if(substitutions.message){substitutions={...substitutions,message:str(substitutions.message)};}
+    const output=String(translated).replace(/\{(\w+)\}/g,(match,name)=>Object.prototype.hasOwnProperty.call(substitutions,name)?String(substitutions[name]):match);
     const result=source.slice(0,source.length-source.trimStart().length)+output+source.slice(source.trimEnd().length);
     rendered.set(result,{source,values});
     if(rendered.size>2048)rendered.delete(rendered.keys().next().value);
@@ -4311,7 +4762,11 @@ const USBManagerI18n = (() => {
   function text(node) {
     if(!node.data.trim())return;
     const record=originals.get(node);
-    const binding=record&&record.output===node.data?record:(rendered.get(node.data)||{source:node.data,values:{}});
+    let binding=record&&record.output===node.data?record:rendered.get(node.data);
+    if(!binding){
+      const trimmed=rendered.get(node.data.trim());
+      binding=trimmed?{source:node.data.slice(0,node.data.length-node.data.trimStart().length)+trimmed.source+node.data.slice(node.data.trimEnd().length),values:trimmed.values}:{source:node.data,values:{}};
+    }
     const source=binding.source,values=binding.values;
     const output=str(source,values);
     originals.set(node,{source,values,output});
@@ -4346,8 +4801,8 @@ const USBManagerI18n = (() => {
   translateTree(document.body);
   observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['placeholder','title','aria-label']});
   return {str,
-    register(locale,messages){catalogs[locale]={...(catalogs[locale]||{}),...messages};translateTree(document.body);},
-    setLanguage(locale){language=locale;try{localStorage.setItem('usb_manager_language',locale);}catch(e){}translateTree(document.body);},
+    register(locale,messages){catalogs[locale]={...(catalogs[locale]||{}),...messages};delete patternCache[locale];translateTree(document.body);},
+    setLanguage(locale){if(!['vi','en'].includes(locale))return;language=locale;document.documentElement.lang=locale;try{localStorage.setItem('usb_manager_language',locale);}catch(e){}translateTree(document.body);document.dispatchEvent(new Event('usb-manager-language'));},
     getLanguage(){return language;}
   };
 })();
@@ -4715,6 +5170,8 @@ class SpyHTTPHandler(http.server.BaseHTTPRequestHandler):
             ))
         elif path == "/api/mqtt_status":
             self._send_json(mqtt_status_snapshot())
+        elif path == "/api/app_time":
+            self._send_json(app_time_snapshot())
         elif path == "/api/version":
             self._send_json({"version": get_addon_version()})
         elif path == "/api/event_log":
@@ -4890,12 +5347,13 @@ def start_spy_http_server(scan_glob: str, claimed_lock: threading.Lock, claimed:
 
 def main() -> None:
     options = load_ui_options()
-    os.environ.setdefault("TZ", "Asia/Ho_Chi_Minh")
-    if hasattr(time, "tzset"):
-        time.tzset()
+    configure_app_time()
+    threading.Thread(target=_watch_app_time, daemon=True, name="ha-timezone").start()
     logging.basicConfig(
         level=getattr(logging, options.get("loglevel", "info").upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S %z")
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(AppTimeFormatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S %z"))
     claimed_lock, claimed = threading.Lock(), {}
     start_spy_http_server(options["scan_glob"], claimed_lock, claimed, options["passive_listen_s"], options["exclude_usb"])
     runtime = UIRuntime(claimed_lock, claimed)
