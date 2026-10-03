@@ -50,8 +50,12 @@ _last_matched_lock = threading.Lock()
 
 
 def load_options() -> dict:
-    with open(OPTIONS_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(OPTIONS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # Supervisor may omit options.json when its options form is disabled.
+        return {}
 
 
 def get_addon_version() -> str:
@@ -2294,7 +2298,8 @@ _SPY_PAGE_HTML = """<!doctype html>
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<title>USB Manager - Spy/Test</title>
+<title>USB Manager</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; background:#0f1115; color:#e6e6e6; }
   h1 { font-size: 1.2rem; }
@@ -2359,12 +2364,15 @@ _SPY_PAGE_HTML = """<!doctype html>
 </style>
 </head>
 <body>
+<header class="app-header"><div><span class="eyebrow">USB MANAGER</span><h1 id="page_title">Tổng quan</h1></div><span class="header-tag">USB → TCP</span></header>
 <div class="tab-bar">
-  <button type="button" class="tab-btn" data-tab="tab_overview">🏠 USB Manager</button>
+  <div class="brand"><span class="brand-icon">⇄</span><div>USB Manager<small>Device control center</small></div></div>
+  <span class="nav-caption">KHÔNG GIAN LÀM VIỆC</span>
+  <button type="button" class="tab-btn" data-tab="tab_overview">◫ Tổng quan</button>
   <button type="button" class="tab-btn" data-tab="tab_config">⚙ Cấu hình</button>
-  <button type="button" class="tab-btn" data-tab="tab_getresponse">Get Response</button>
-  <button type="button" class="tab-btn" data-tab="tab_comm">Communication</button>
-  <button type="button" class="tab-btn" data-tab="tab_log">📋 Log</button>
+  <button type="button" class="tab-btn" data-tab="tab_getresponse">↔ Thu phản hồi</button>
+  <button type="button" class="tab-btn" data-tab="tab_comm">⌁ Công cụ Modbus</button>
+  <button type="button" class="tab-btn" data-tab="tab_log">≡ Nhật ký</button>
 </div>
 
 <button type="button" id="settings_gear_btn" title="Cài đặt trình duyệt (localStorage)"
@@ -2392,6 +2400,8 @@ _SPY_PAGE_HTML = """<!doctype html>
 </div>
 
 <div id="tab_overview" class="tab-content">
+<div class="overview-intro"><div><h2>Kết nối đúng thiết bị. Giữ nguyên cổng TCP.</h2><p>Theo dõi kết nối và quản lý thiết bị USB từ một nơi.</p></div><button type="button" class="primary" onclick="showTab('tab_config')">Quản lý cổng ↗</button></div>
+<div class="metric-grid"><div class="metric"><span>Cổng đã cấu hình</span><strong id="metric_ports">—</strong><small>Danh tính cố định</small></div><div class="metric"><span>USB đã nhận diện</span><strong id="metric_online">—</strong><small>Khớp phản hồi thiết bị</small></div><div class="metric"><span>Client đang kết nối</span><strong id="metric_clients">—</strong><small>Kết nối TCP hiện tại</small></div><div class="metric"><span>Đang chờ thiết bị</span><strong id="metric_waiting">—</strong><small>Tự động dò lại</small></div></div>
 <div id="mqtt_status" style="margin-bottom:12px; font-size:0.85rem; color:#9aa0a6;">Đang kiểm tra MQTT...</div>
 
 <h2 style="font-size:1rem; margin-top:0;">Danh sách port ảo</h2>
@@ -2400,14 +2410,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 <hr style="border-color:#333842; margin:20px 0;">
 
 <h2 style="font-size:1rem; margin-top:0;">Tất cả cổng USB đang cắm trên host</h2>
-<p style="color:#9aa0a6; font-size:0.85rem;">
-  Liệt kê MỌI thiết bị khớp <code>scan_glob</code> (kể cả thiết bị đã bị loại
-  trừ qua <code>exclude_usb</code>, hoặc chưa được port ảo nào dùng tới) —
-  dùng để tra cứu đúng <code>by-id</code>/<code>by-path</code> cần điền vào
-  <code>exclude_usb</code>. Ô "Ghi chú" tự lưu khi rời khỏi ô nhập (không cần
-  nút Save), lưu ở <code>/data/</code> nên <b>không mất</b> qua
-  restart/rebuild/update add-on.
-</p>
+<p class="section-description">USB trên máy chủ, gồm cả thiết bị đã loại trừ. Ghi chú tự lưu; quản lý loại trừ trong Cấu hình → Cài đặt chung.</p>
 <div id="usb_devices_list"><i>Đang tải...</i></div>
 </div>
 
@@ -2710,6 +2713,7 @@ function showTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
+  document.getElementById('page_title').textContent=({tab_overview:'Tổng quan',tab_config:'Cấu hình thiết bị',tab_getresponse:'Thu phản hồi',tab_comm:'Công cụ Modbus',tab_log:'Nhật ký hoạt động'})[tabId] || 'USB Manager';
   document.querySelector(`.tab-btn[data-tab="${tabId}"]`).classList.add('active');
 }
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -2826,6 +2830,10 @@ async function loadPorts() {
   try {
     const res = await fetch('api/ports');
     const list = await res.json();
+    document.getElementById('metric_ports').textContent=list.length;
+    document.getElementById('metric_online').textContent=list.filter(p=>p.enabled && p.device_path).length;
+    document.getElementById('metric_clients').textContent=list.reduce((n,p)=>n+(p.connected_clients||0),0);
+    document.getElementById('metric_waiting').textContent=list.filter(p=>p.enabled && !p.device_path).length;
     if (!list.length) {
       out.innerHTML = '<i>Chưa có port ảo. Mở tab Cấu hình để thêm port.</i>';
       return;
@@ -2901,10 +2909,10 @@ async function rescanPort(btn) {
     });
     const result = await res.json();
     if (!result.ok) {
-      alert('Không rescan được: ' + (result.error || 'lỗi không rõ'));
+      uiAlert('Không rescan được: ' + (result.error || 'lỗi không rõ'));
     }
   } catch (e) {
-    alert('Lỗi kết nối khi gọi rescan.');
+    uiAlert('Lỗi kết nối khi gọi rescan.');
   }
   setTimeout(() => { btn.disabled = false; btn.textContent = oldText; }, 1500);
 }
@@ -2989,7 +2997,7 @@ async function loadUsbDevices() {
 }
 
 async function deleteUsbNote(key) {
-  if (!confirm('Xoá ghi chú/lịch sử của thiết bị này?')) return;
+  if (!uiConfirm('Xoá ghi chú/lịch sử của thiết bị này?')) return;
   try {
     await fetch('api/usb_forget', {
       method: 'POST',
@@ -3036,17 +3044,17 @@ document.addEventListener('click', async (ev) => {
   if (!btn) return;
   const name = btn.dataset.name;
   const take = btn.dataset.act === 'take';
-  if (take && !confirm(`Port ảo "${name}" sẽ ngắt bridge và nhả cổng USB để test. Node-RED/HA mất kết nối tới thiết bị cho tới khi bấm "Trả quyền" (tự trả sau 30 phút). Tiếp tục?`)) return;
+  if (take && !uiConfirm(`Port ảo "${name}" sẽ ngắt bridge và nhả cổng USB để test. Node-RED/HA mất kết nối tới thiết bị cho tới khi bấm "Trả quyền" (tự trả sau 30 phút). Tiếp tục?`)) return;
   btn.disabled = true;
   try {
     const res = await fetch(take ? 'api/take_test_hold' : 'api/release_test_hold', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name }),
     });
     const d = await res.json();
-    if (!d.ok) alert('Lỗi: ' + d.error);
-    else if (d.warning) alert(d.warning);
+    if (!d.ok) uiAlert('Lỗi: ' + d.error);
+    else if (d.warning) uiAlert(d.warning);
   } catch (e) {
-    alert('Lỗi kết nối: ' + (e.message || e));
+    uiAlert('Lỗi kết nối: ' + (e.message || e));
   }
   await loadCandidates();
 });
@@ -3675,7 +3683,7 @@ document.getElementById('scan_reg_btn').addEventListener('click', async () => {
 document.getElementById('setaddr_btn').addEventListener('click', async () => {
   const btn = document.getElementById('setaddr_btn');
   const out = document.getElementById('setaddr_result');
-  if (!confirm('Sắp gửi lệnh ghi thanh ghi lên thiết bị THẬT - chắc chắn đúng Unit ID/address/giá trị?')) return;
+  if (!uiConfirm('Sắp gửi lệnh ghi thanh ghi lên thiết bị THẬT - chắc chắn đúng Unit ID/address/giá trị?')) return;
   btn.disabled = true;
   out.innerHTML = '';
   const params = {
@@ -3804,7 +3812,7 @@ document.getElementById('settings_gear_btn').addEventListener('click', () => {
 });
 
 document.getElementById('clear_comm_storage_btn').addEventListener('click', () => {
-  if (!confirm('Xoá toàn bộ kết quả/log đã lưu của tab Communication?\\n\\n(KHÔNG ảnh hưởng ghi chú thiết bị Local PC, KHÔNG ảnh hưởng ghi chú/dữ liệu trên server, KHÔNG ảnh hưởng thiết bị "Không còn cắm".)')) return;
+  if (!uiConfirm('Xoá toàn bộ kết quả/log đã lưu của tab Communication?\\n\\n(KHÔNG ảnh hưởng ghi chú thiết bị Local PC, KHÔNG ảnh hưởng ghi chú/dữ liệu trên server, KHÔNG ảnh hưởng thiết bị "Không còn cắm".)')) return;
   try {
     localStorage.removeItem(COMM_STORAGE_KEY);
   } catch (e) { /* im lặng */ }
@@ -3991,17 +3999,18 @@ setInterval(loadPortTestList, 10000);
 
 
 _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
-  <h1>Cấu hình USB Manager</h1>
+  <div class="section-heading"><div><span class="eyebrow">THIẾT BỊ &amp; KẾT NỐI</span><h1>Cổng của bạn</h1></div><span id="cfg_count" class="count-badge">0 cổng</span></div>
   <p class="note">Nhận diện bằng phản hồi → gán thiết bị đúng → xuất TCP cố định. Cấu hình được lưu trên addon, giữ qua restart và cập nhật.</p>
-  <div class="cfg-toolbar">
+  <div class="cfg-toolbar cfg-actions">
     <button id="cfg_add" type="button">＋ Thêm port</button>
     <button id="cfg_reload" type="button">Tải lại</button>
     <button id="cfg_export" type="button">Xuất bản sao</button>
     <button id="cfg_import" type="button">Nhập bản sao</button>
     <input id="cfg_file" type="file" accept="application/json,.json" hidden>
-    <button id="cfg_save" type="button">Lưu và áp dụng</button>
+    <span class="toolbar-spacer"></span><button id="cfg_save" type="button">Lưu và áp dụng</button>
   </div>
   <p id="cfg_status" role="status" aria-live="polite">Đang tải cấu hình…</p>
+  <div class="port-filter"><input id="cfg_search" type="search" aria-label="Tìm cổng" placeholder="Tìm theo tên, ID hoặc cổng TCP…"><select id="cfg_filter" aria-label="Lọc cổng"><option value="all">Tất cả cổng</option><option value="enabled">Đang bật</option><option value="disabled">Đã tắt</option></select></div>
   <div id="cfg_ports"></div>
   <details class="card cfg-settings"><summary>Cài đặt chung · Quét USB, MQTT, log</summary>
     <div class="cfg-toolbar"><label for="cfg_exclude_device">Chọn USB cần loại trừ</label><select id="cfg_exclude_device" style="width:min(600px,100%)"></select><button id="cfg_exclude_add" type="button">Thêm vào loại trừ</button><button id="cfg_exclude_refresh" type="button">Quét danh sách USB</button></div>
@@ -4015,12 +4024,12 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
     <form id="cfg_form">
       <h2 id="cfg_editor_title">Thêm port</h2>
       <p>ID cố định giữ liên kết MQTT và lịch sử nhận diện. Dùng “Tên hiển thị” để đổi tên port đã có.</p>
-      <div id="cfg_basic" class="cfg-grid"></div>
-      <h3>Nhận diện thiết bị</h3>
+      <h3 class="step-heading"><span>01</span> Cổng &amp; kết nối</h3><div id="cfg_basic" class="cfg-grid"></div>
+      <h3 class="step-heading"><span>02</span> Nhận diện thiết bị</h3>
       <p>Nhập lệnh và dấu hiệu phản hồi đặc trưng. HEX dùng <code>hex:0104</code>; văn bản dùng <code>text:GET_ID$</code>.</p>
       <div id="cfg_identity" class="cfg-grid"></div>
       <p class="note">Hai phản hồi là điều kiện HOẶC. Một dấu hiệu quá ngắn có thể khớp nhiều thiết bị; dữ liệu đo thay đổi cũng có thể làm mất khớp. Với Modbus, để trống cả hai phản hồi để kiểm CRC + địa chỉ + mã hàm.</p>
-      <details><summary>Tùy chọn nâng cao</summary><div id="cfg_advanced" class="cfg-grid"></div></details>
+      <details><summary>03 · Tùy chọn nâng cao</summary><div id="cfg_advanced" class="cfg-grid"></div></details>
       <details><summary>Kiểm tra quy tắc với phản hồi đã thu</summary>
         <p>Dán phản hồi từ Get Response. Phép kiểm tra này chỉ so khớp dữ liệu, không gửi lệnh ra USB.</p>
         <label for="cfg_response">Phản hồi thực tế (hex:… hoặc text:…)</label><textarea id="cfg_response" rows="3"></textarea>
@@ -4049,6 +4058,33 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
  #cfg_save {background:#238636}
  #cfg_ports .cfg-disabled {opacity:.65}
  .tab-bar {flex-wrap:wrap;padding-right:46px}
+
+/* Shared visual system: local assets only, responsive within HA Ingress. */
+:root{color-scheme:dark;--bg:#0b111b;--panel:#121c2a;--line:#263447;--text:#e8edf5;--muted:#93a4bb;--accent:#5de4bb}
+*{box-sizing:border-box} [hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:118px 32px 40px 264px}
+h1,h2,h3{letter-spacing:-.025em;color:var(--text)}h1{font-size:26px}h2{font-size:19px!important}h3{font-size:16px}p{color:var(--muted)}
+.app-header{position:absolute;top:0;left:232px;right:0;min-height:94px;padding:21px 32px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
+.app-header h1{margin:1px 0;font-size:24px}.eyebrow{font-size:10px;letter-spacing:.16em;font-weight:700;color:var(--muted)}.header-tag{color:var(--accent);border:1px solid #28574e;background:#142d2a;padding:5px 12px;border-radius:30px;margin-right:62px;font-size:12px}
+.tab-bar{position:fixed;inset:0 auto 0 0;width:232px;padding:26px 16px!important;background:#101925;border-right:1px solid var(--line);border-bottom:none;display:flex;flex-direction:column;gap:8px;margin:0;z-index:20;overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;margin-bottom:40px;padding:0 4px}.brand small{display:block;font-size:10px;font-weight:400;color:var(--muted);letter-spacing:.02em}.brand-icon{background:var(--accent);color:#072c24;border-radius:12px;width:38px;height:38px;display:grid;place-items:center;font-size:26px}.nav-caption{font-size:9px;letter-spacing:.13em;color:#71839b;margin:0 12px 8px}.tab-btn{width:100%;border-radius:9px;border:1px solid transparent;text-align:left;padding:11px 13px;color:var(--muted);font-size:13px;white-space:nowrap;background:transparent}.tab-btn:hover{background:#192637}.tab-bar .tab-btn.active,.tab-bar .tab-btn.active:hover{background:#19332f;color:var(--accent);border-color:#285047}
+.tab-content{max-width:1440px;margin:auto}.overview-intro{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:24px}.overview-intro h2{margin:0 0 4px;font-size:23px!important}.overview-intro p{margin:0}.overview-intro button{width:auto;white-space:nowrap}
+.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}.metric{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:19px 20px;display:flex;flex-direction:column}.metric span{font-size:12px;color:var(--muted)}.metric strong{font-size:34px;line-height:1.7;font-weight:650;color:var(--text)}.metric:nth-child(2) strong{color:var(--accent)}.metric:nth-child(4) strong{color:#f6c76d}.metric small{font-size:10px;color:#74869e}
+button{background:#25364d;border:1px solid #334862;border-radius:9px;color:var(--text);padding:10px 14px;font-size:13px;transition:background .15s, border-color .15s}button:hover:not(:disabled){background:#324862;border-color:#6b839d}button.primary,#cfg_add,#cfg_save,.edit-port{background:var(--accent);color:#082d24;border-color:var(--accent)}button.primary:hover:not(:disabled),#cfg_save:hover:not(:disabled),#cfg_add:hover:not(:disabled),.edit-port:hover:not(:disabled){background:#8aefd0;border-color:#8aefd0}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}button:disabled{opacity:.45}
+input,select,textarea{background:#0d1623;color:var(--text);border:1px solid #304057;border-radius:8px;padding:10px 12px;font:inherit;margin-top:6px;width:100%;min-height:40px}input[type=checkbox],input[type=radio]{width:17px;min-height:17px;accent-color:var(--accent)}input[type=number],.narrow{max-width:none}label{font-size:12px;color:var(--muted);margin-top:14px}input::placeholder,textarea::placeholder{color:#647790}input[readonly]{color:#8294ab;background:#172131}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.note{color:var(--muted);background:#162738;border-left:3px solid #5087ac;border-radius:5px;padding:12px 14px;font-size:12px}.err{color:#ff9f9f}.row{gap:16px}.row>div{flex:1 1 180px;min-width:0}.section-description{max-width:820px;font-size:12px}
+.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.section-heading h1{margin:4px 0 12px;font-size:28px}.count-badge{border:1px solid var(--line);border-radius:24px;padding:4px 13px;color:var(--muted);font-size:12px}.cfg-actions{position:sticky;top:10px;z-index:10;background:#121c2af5;border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:0 8px 24px #0002;margin:22px 0 12px}.cfg-toolbar{gap:8px}.cfg-toolbar button{margin:0}.toolbar-spacer{flex:1}#cfg_status{font-size:12px;padding:0 4px;min-height:22px}.port-filter{display:flex;gap:12px;margin:18px 0}.port-filter input{flex:1;margin:0}.port-filter select{width:168px;margin:0}
+#cfg_ports{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}.cfg-port{margin:0;display:flex;flex-direction:column;align-items:stretch;gap:18px;position:relative;overflow:hidden}.cfg-port:before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent)}.cfg-port.cfg-disabled:before{background:#56647a}.cfg-port h3{margin:12px 0 8px;font-size:18px}.cfg-port p{overflow-wrap:anywhere;font-size:11px;margin:8px 0}.cfg-port>div:first-child{flex:1}.port-state{display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--accent);border:1px solid #2a524a;background:#19332f;padding:2px 8px;border-radius:20px}.port-state:before{content:"";width:5px;height:5px;background:currentColor;border-radius:50%}.port-state.off{color:#91a0b6;background:#202b3b;border-color:#39465b}.port-endpoint{display:inline-block;color:var(--text);background:#1d2b3e;border-radius:6px;padding:4px 9px;font:13px ui-monospace,Consolas,monospace}.cfg-port .cfg-toolbar{border-top:1px solid var(--line);padding-top:15px}.cfg-port .cfg-toolbar button{padding:7px 13px;font-size:12px}.danger-quiet{margin-left:auto!important;color:#ffa7a7;background:transparent;border-color:transparent}.empty-state{grid-column:1/-1;text-align:center;padding:60px 28px;border:1px dashed #3b506a;border-radius:14px;background:#101a28}.empty-state h3{font-size:21px;margin:0 0 10px}.empty-state p{max-width:490px;margin:0 auto 22px}.empty-state button{width:auto;background:var(--accent);color:#082d24}
+#tab_config details{background:var(--panel);border-color:var(--line);border-radius:12px;padding:18px 20px;margin-top:20px}summary{font-size:13px;color:var(--text);padding:3px;cursor:pointer}.cfg-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px}#tab_config textarea{background:#0d1623;border-color:#304057;border-radius:8px;padding:11px;color:var(--text)}.cfg-grid>div:has(input[type=checkbox]){display:flex;align-items:center;gap:10px;padding-top:18px}.cfg-grid>div:has(input[type=checkbox]) label{margin:0;flex:1}.cfg-grid>div:has(input[type=checkbox]) input{margin:0}
+#cfg_editor{width:min(900px,calc(100vw - 40px));max-height:calc(100dvh - 48px);padding:28px;border:1px solid #42536b;background:#121c2a;border-radius:18px;box-shadow:0 24px 100px #0008;color:var(--text)}#cfg_editor::backdrop{background:#020813c9;backdrop-filter:blur(5px)}#cfg_editor h2{font-size:24px!important;margin:0 0 8px}#cfg_editor p{font-size:12px}.step-heading{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:22px;margin:25px 0 4px}.step-heading span{color:var(--accent);font-size:11px;background:#19332f;padding:5px 8px;border-radius:6px}#cfg_editor .cfg-toolbar{position:sticky;bottom:-28px;margin:20px -4px 0;padding:16px 4px;background:#121c2af5;border-top:1px solid var(--line)}#cfg_editor .cfg-toolbar button[type=submit]{background:var(--accent);color:#082d24}
+#ports_list,#usb_devices_list{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);margin:12px 0 24px;padding:6px 12px}table.ports{min-width:1050px;font-size:12px;margin:0}table.ports th,table.ports td{padding:13px 10px;border-color:var(--line)}table.ports th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}table.ports td:nth-child(2){font-weight:600;color:var(--text)}table.ports tr:hover td{background:#172334}table.log{font-size:12px}table.log th,table.log td{padding:11px;border-color:var(--line)}table.log th{background:#121c2a;color:var(--muted)}.copybox input,pre{font-family:ui-monospace,Consolas,monospace;font-size:12px}pre{background:#0d1623;border:1px solid var(--line);border-radius:10px;padding:16px}.busy-box{border-color:#4b5362;border-radius:10px;padding:14px}.badge{padding:3px 9px}
+#settings_gear_btn{position:absolute!important;top:26px!important;right:30px!important;background:var(--panel)!important;border-color:var(--line)!important;width:38px!important;height:38px;padding:4px!important}#addon_version_label{position:absolute!important;top:69px!important;right:32px!important;color:var(--muted)!important}#settings_panel{background:var(--panel)!important;border-color:var(--line)!important;border-radius:12px!important;top:76px!important;right:30px!important;max-width:calc(100vw - 32px)}
+@media(min-width:1700px){body{padding-right:64px;padding-left:296px}.app-header{padding-left:64px;padding-right:64px}}
+@media(max-width:1050px){body{padding:118px 22px 32px 214px}.tab-bar{width:192px;padding:25px 12px!important}.app-header{left:192px;padding-left:22px}.brand{font-size:14px;gap:8px}.brand small{font-size:9px}.brand-icon{width:32px;height:32px}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-intro{align-items:flex-start}.overview-intro h2{font-size:20px!important}.header-tag{display:none}}
+@media(max-width:720px){body{padding:160px 16px 28px}.app-header{left:0;min-height:80px;padding:16px 20px}.app-header h1{font-size:22px}.tab-bar{position:absolute;top:84px;left:0;right:0;bottom:auto;width:100%;padding:8px 16px!important;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);background:var(--bg)}.brand,.nav-caption{display:none}.tab-btn{width:auto;flex-shrink:0;padding:9px 12px;font-size:12px}.overview-intro{flex-direction:column;gap:8px}.overview-intro button{margin-top:4px}.metric-grid{gap:10px}.metric{padding:14px}.metric strong{font-size:28px}.metric span{font-size:11px}.metric small{font-size:9px}.cfg-actions{top:8px;gap:8px;padding:10px}.toolbar-spacer{display:none}.cfg-actions button{flex:1 1 auto;font-size:11px;padding:9px}#cfg_save{flex-basis:100%}.cfg-grid{grid-template-columns:1fr}.port-filter select{width:122px;font-size:12px}.section-heading h1{font-size:25px}.card{padding:18px}.cfg-port .cfg-toolbar{flex-wrap:nowrap}#cfg_editor{width:calc(100vw - 20px);padding:20px;max-height:calc(100dvh - 24px);border-radius:14px}#cfg_editor .cfg-toolbar{bottom:-20px}#settings_gear_btn{top:20px!important;right:18px!important}#addon_version_label{top:62px!important;right:20px!important}#settings_panel{right:16px!important}.copybox{flex-wrap:wrap}.copybox input{min-width:160px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
 </style>
 """
 _CONFIG_UI_SCRIPT = r"""
@@ -4067,16 +4103,16 @@ _CONFIG_UI_SCRIPT = r"""
     if(!response.ok || result.ok===false) throw new Error(result.error || 'Không thể thực hiện');
     return result;
   }
-  function status(message,error=false) {$('cfg_status').textContent=message;$('cfg_status').className=error?'err':'';}
+  function status(message,error=false) {$('cfg_status').textContent=str(message);$('cfg_status').className=error?'err':'';}
   function markDirty() {dirty=true;status('Có thay đổi chưa lưu. Lưu sẽ dò lại các port bị sửa; client TCP của các port đó cần kết nối lại.');}
   function fields(container,defs,values,prefix) {
     $(container).replaceChildren();
     for(const [key,label,type,min,max] of defs) {
       const wrapper=document.createElement('div');wrapper.dataset.field=key;
-      const caption=document.createElement('label');caption.textContent=label;caption.htmlFor=prefix+key;
+      const caption=document.createElement('label');caption.textContent=str(label);caption.htmlFor=prefix+key;
       const input=document.createElement(Array.isArray(type)?'select':type==='textarea'?'textarea':'input');
       input.id=prefix+key;input.dataset.key=key;
-      if(Array.isArray(type)) for(const v of type){const o=document.createElement('option');o.value=v;o.textContent=({raw:'Raw UART',modbus_rtu:'Modbus RTU',tcp:'TCP',pty:'PTY',contains:'Chứa chuỗi',exact:'Giống toàn bộ',startswith:'Bắt đầu bằng',fuzzy:'Gần giống'})[v]||v;input.append(o);}
+      if(Array.isArray(type)) for(const v of type){const o=document.createElement('option');o.value=v;o.textContent=str(({raw:'Raw UART',modbus_rtu:'Modbus RTU',tcp:'TCP',pty:'PTY',contains:'Chứa chuỗi',exact:'Giống toàn bộ',startswith:'Bắt đầu bằng',fuzzy:'Gần giống'})[v]||v);input.append(o);}
       else if(type!=='textarea') input.type=type;
       const value=values[key];
       if(type==='checkbox')input.checked=!!value;
@@ -4126,18 +4162,33 @@ _CONFIG_UI_SCRIPT = r"""
   }
   function renderPorts() {
     $('cfg_ports').replaceChildren();
+    $('cfg_count').textContent=str('{count} cổng',{count:state.options.ports.length});
+    const query=$('cfg_search').value.trim().toLocaleLowerCase(), filter=$('cfg_filter').value;
+    let visible=0;
     for(const [index,p] of state.options.ports.entries()) {
+      if(query && ![p.name,p.friendly_name,p.tcp_port,p.expected_response,p.protocol].join(' ').toLocaleLowerCase().includes(query))continue;
+      if(filter==='enabled'&&!p.enabled||filter==='disabled'&&p.enabled)continue;
+      visible++;
       const card=document.createElement('div');card.className='card cfg-port'+(p.enabled?'':' cfg-disabled');
-      const info=document.createElement('div');const title=document.createElement('h3');title.textContent=p.friendly_name||p.name;
-      const line=document.createElement('p');line.textContent=p.name+' · '+p.protocol+' · '+p.baud+' baud · '+(p.output_mode==='pty'?p.pty_symlink:':'+p.tcp_port)+(p.mbap_rtu_bridge?' · Modbus TCP':'')+' · '+(p.enabled?'Đã bật':'Đã tắt');
-      const rule=document.createElement('p');rule.textContent='Nhận diện: '+(p.expected_response||p.expected_response_2||'CRC + địa chỉ + mã hàm Modbus');
-      info.append(title,line,rule);const buttons=document.createElement('div');buttons.className='cfg-toolbar';
-      for(const [label,action] of [['Sửa',()=>edit(index)],[p.enabled?'Tắt':'Bật',()=>{p.enabled=!p.enabled;markDirty();renderPorts();}],['Xóa',()=>{if(confirm('Xóa port '+p.name+'? Sau khi lưu, TCP của port này sẽ dừng.')){state.options.ports.splice(index,1);markDirty();renderPorts();}}]]) {
-        const b=document.createElement('button');b.type='button';b.textContent=label;b.disabled=applying;b.onclick=action;buttons.append(b);
+      const info=document.createElement('div');const title=document.createElement('h3');title.dataset.noTranslate='';title.textContent=p.friendly_name||p.name;
+      const line=document.createElement('p');line.dataset.noTranslate='';line.textContent=p.name+' · '+p.protocol+' · '+p.baud+' baud · '+(p.output_mode==='pty'?p.pty_symlink:':'+p.tcp_port)+(p.mbap_rtu_bridge?' · Modbus TCP':'')+' · '+(p.enabled?'Đã bật':'Đã tắt');
+      const rule=document.createElement('p');rule.dataset.noTranslate='';rule.textContent=str('Nhận diện: ')+(p.expected_response||p.expected_response_2||'CRC + địa chỉ + mã hàm Modbus');
+      const badge=document.createElement('span');badge.className='port-state '+(p.enabled?'on':'off');badge.textContent=str(p.enabled?'Đang bật':'Đã tắt');
+      const endpoint=document.createElement('strong');endpoint.className='port-endpoint';endpoint.textContent=p.output_mode==='pty'?'PTY':'TCP '+p.tcp_port;
+      info.append(badge,title,endpoint,line,rule);const buttons=document.createElement('div');buttons.className='cfg-toolbar';
+      for(const [label,action] of [['Sửa',()=>edit(index)],[p.enabled?'Tắt':'Bật',()=>{p.enabled=!p.enabled;markDirty();renderPorts();}],['Xóa',()=>{if(uiConfirm('Xóa port '+p.name+'? Sau khi lưu, TCP của port này sẽ dừng.')){state.options.ports.splice(index,1);markDirty();renderPorts();}}]]) {
+        const b=document.createElement('button');b.type='button';b.textContent=str(label);b.className=label==='Xóa'?'danger-quiet':label==='Sửa'?'edit-port':'';b.disabled=applying;b.onclick=action;buttons.append(b);
       }
       card.append(info,buttons);$('cfg_ports').append(card);
     }
-    if(!state.options.ports.length)$('cfg_ports').textContent='Chưa có port. Nhấn “Thêm port” để cấu hình nhận diện và TCP.';
+    if(!visible){
+      const empty=document.createElement('div');empty.className='empty-state';
+      const title=document.createElement('h3');title.textContent=state.options.ports.length?'Không tìm thấy cổng':'Bắt đầu với thiết bị đầu tiên';
+      const note=document.createElement('p');note.textContent=state.options.ports.length?'Thử tên khác hoặc thay đổi bộ lọc.':'Thêm cổng, nhập phản hồi nhận diện và chọn cổng TCP. USB Manager sẽ tự tìm đúng thiết bị.';
+      empty.append(title,note);
+      if(!state.options.ports.length){const add=document.createElement('button');add.type='button';add.textContent='＋ Thêm cổng đầu tiên';add.disabled=applying;add.onclick=()=>edit(-1);empty.append(add);}
+      $('cfg_ports').append(empty);
+    }
   }
   function lock(value) {
     applying=value;$('cfg_save').disabled=value;$('cfg_add').disabled=value;$('cfg_import').disabled=value;
@@ -4162,7 +4213,7 @@ _CONFIG_UI_SCRIPT = r"""
       state=snapshot||await api('api/config');dirty=false;
       fields('cfg_globals',globals,state.options,'cg_');$('cfg_clear_password').checked=false;
       $('cfg_globals').oninput=markDirty;lock(state.applying);
-      status(state.error || (state.applying?'Đang áp dụng cấu hình…':'Đã tải cấu hình. '+state.options.ports.length+' port.'),!!state.error);
+      status(state.error || (state.applying?'Đang áp dụng cấu hình…':str('Đã tải cấu hình. {count} cổng.',{count:state.options.ports.length})),!!state.error);
       if(state.applying)poll();
       exclusions();
     } catch(e){status(e.message,true);}
@@ -4191,7 +4242,7 @@ _CONFIG_UI_SCRIPT = r"""
     $('cfg_editor').close();markDirty();renderPorts();
   };
   $('cfg_add').onclick=()=>edit(-1);$('cfg_cancel').onclick=()=>$('cfg_editor').close();
-  $('cfg_reload').onclick=()=>{if(!dirty||confirm('Bỏ thay đổi chưa lưu và tải cấu hình trên addon?'))load();};
+  $('cfg_reload').onclick=()=>{if(!dirty||uiConfirm('Bỏ thay đổi chưa lưu và tải cấu hình trên addon?'))load();};
   $('cfg_clear_password').onchange=markDirty;
   $('cfg_exclude_refresh').onclick=exclusions;
   $('cfg_exclude_add').onclick=()=>{
@@ -4199,6 +4250,9 @@ _CONFIG_UI_SCRIPT = r"""
     const values=$('cg_exclude_usb').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
     if(!values.includes(path)){values.push(path);$('cg_exclude_usb').value=values.join('\n');markDirty();}
   };
+  $('cfg_search').oninput=()=>{if(state)renderPorts();};
+  $('cfg_filter').onchange=()=>{if(state)renderPorts();};
+  $('cfg_editor').addEventListener('click',e=>{if(e.target===$('cfg_editor')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('cfg_editor').close();}});
   $('cfg_save').onclick=async()=>{
     if(!state||applying)return;
     try {
@@ -4224,7 +4278,7 @@ _CONFIG_UI_SCRIPT = r"""
       if(file.size>1048576)throw new Error('Bản sao quá lớn (tối đa 1 MiB).');
       const doc=JSON.parse(await file.text());
       if(doc.version!==1||!doc.options||!Array.isArray(doc.options.ports))throw new Error('Bản sao không hợp lệ.');
-      if(!confirm('Thay danh sách port và cài đặt trên form bằng bản sao? Chưa áp dụng tới khi bạn lưu.'))return;
+      if(!uiConfirm('Thay danh sách port và cài đặt trên form bằng bản sao? Chưa áp dụng tới khi bạn lưu.'))return;
       state.options={...state.options,...doc.options};delete state.options.mqtt_password;
       fields('cfg_globals',globals,state.options,'cg_');$('cfg_clear_password').checked=false;markDirty();renderPorts();
     }catch(e){status(e.message,true);}finally{$('cfg_file').value='';}
@@ -4233,7 +4287,77 @@ _CONFIG_UI_SCRIPT = r"""
   load();
 })();
 """
-_SPY_PAGE_HTML = _SPY_PAGE_HTML.replace("<script>", _CONFIG_UI_HTML + "<script>", 1).replace("</script>", _CONFIG_UI_SCRIPT + "</script>", 1)
+_I18N_UI_SCRIPT = r"""
+// All presentation text passes through str(); protocol data and input values
+// stay untouched. Translation catalogs can be registered without changing UI code.
+const USBManagerI18n = (() => {
+  const catalogs = {vi: Object.create(null)};
+  let language='vi';
+  try {language=localStorage.getItem('usb_manager_language')||'vi';}catch(e){}
+  const originals=new WeakMap();
+  const rendered=new Map();
+  function str(message, values={}) {
+    const source=String(message??'');
+    const key=source.trim();
+    if(!key)return source;
+    const catalog=catalogs[language]||{};
+    const translated=Object.prototype.hasOwnProperty.call(catalog,key)?catalog[key]:key;
+    const output=String(translated).replace(/\{(\w+)\}/g,(match,name)=>Object.prototype.hasOwnProperty.call(values,name)?String(values[name]):match);
+    const result=source.slice(0,source.length-source.trimStart().length)+output+source.slice(source.trimEnd().length);
+    rendered.set(result,{source,values});
+    if(rendered.size>2048)rendered.delete(rendered.keys().next().value);
+    return result;
+  }
+  function text(node) {
+    if(!node.data.trim())return;
+    const record=originals.get(node);
+    const binding=record&&record.output===node.data?record:(rendered.get(node.data)||{source:node.data,values:{}});
+    const source=binding.source,values=binding.values;
+    const output=str(source,values);
+    originals.set(node,{source,values,output});
+    if(node.data!==output)node.data=output;
+  }
+  const attributeSources=new WeakMap();
+  function translateTree(root) {
+    if(root.nodeType===3){if(!root.parentElement?.closest('script,style,code,pre,[data-no-translate]'))text(root);return;}
+    if(root.nodeType!==1)return;
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+    let node;while((node=walker.nextNode()))if(!node.parentElement?.closest('script,style,code,pre,[data-no-translate]'))text(node);
+    for(const el of [root,...root.querySelectorAll('[placeholder],[title],[aria-label]')]) {
+      if(el.closest('script,style,code,pre,[data-no-translate]'))continue;
+      const saved=attributeSources.get(el)||{};
+      for(const attr of ['placeholder','title','aria-label']) {
+        if(!el.hasAttribute(attr))continue;
+        const current=el.getAttribute(attr),record=saved[attr];
+        const source=record&&record.output===current?record.source:current;
+        const output=str(source);saved[attr]={source,output};
+        if(current!==output)el.setAttribute(attr,output);
+      }
+      attributeSources.set(el,saved);
+    }
+  }
+  const observer=new MutationObserver(records=>{
+    for(const record of records){
+      if(record.type==='characterData')translateTree(record.target);
+      else if(record.type==='attributes')translateTree(record.target);
+      else for(const node of record.addedNodes)translateTree(node);
+    }
+  });
+  translateTree(document.body);
+  observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['placeholder','title','aria-label']});
+  return {str,
+    register(locale,messages){catalogs[locale]={...(catalogs[locale]||{}),...messages};translateTree(document.body);},
+    setLanguage(locale){language=locale;try{localStorage.setItem('usb_manager_language',locale);}catch(e){}translateTree(document.body);},
+    getLanguage(){return language;}
+  };
+})();
+window.USBManagerI18n=USBManagerI18n;
+function str(message,values){return USBManagerI18n.str(message,values);}
+function uiAlert(message){window.alert(str(message));}
+function uiConfirm(message){return window.confirm(str(message));}
+
+"""
+_SPY_PAGE_HTML = _SPY_PAGE_HTML.replace("<script>", _CONFIG_UI_HTML + "<script>" + _I18N_UI_SCRIPT, 1).replace("</script>", _CONFIG_UI_SCRIPT + "</script>", 1)
 
 # Configuration owned by the Ingress UI; Supervisor options are imported once.
 UI_CONFIG_PATH = "/data/usb-manager-config.json"
