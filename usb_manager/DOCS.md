@@ -69,3 +69,11 @@ Network mappings and hardware permissions are managed by Supervisor.
 The add-on requires access to the serial devices; if Home Assistant requests
 it, disable Protection mode for this add-on. USB ports are available to the
 Home Assistant host, not the computer displaying the UI.
+
+## Templates, language and time
+
+Choose **Add port → Start from a template** for UART, listen-only UART, Modbus TCP/RTU, RTU over TCP or PTY. Review the device ID, baud, response signature and destination before saving.
+
+Use **Settings → Language** to select Vietnamese or English. The choice is saved in your browser. Device names, commands and captured bytes stay unchanged.
+
+The app uses the Home Assistant host clock and reads Home Assistant's timezone through the Supervisor proxy. When Core is temporarily unavailable, it keeps the last confirmed timezone or uses the timezone supplied by Supervisor.

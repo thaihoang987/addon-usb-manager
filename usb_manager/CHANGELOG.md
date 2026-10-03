@@ -6,12 +6,15 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
-## 1.12.1
+## 1.12.2
 
 - Maintenance update.
-- Source: [b7e026f](https://github.com/thaihoang987/addon-usb-manager/commit/b7e026f04ca231d3fbeba70cf57defaf47de5c7a).
+- Source: [4593915](https://github.com/thaihoang987/addon-usb-manager/commit/4593915d61297141e22306ed56699dbe4e3670c6).
 
 ## Unreleased
+
+- Add ready-to-edit UART, Modbus and PTY templates, Vietnamese/English settings and Home Assistant time synchronization.
+- Shorten interface instructions.
 
 - Add a shared str() translation layer for static and dynamic UI text, accessible labels and confirmation dialogs; keep device data unchanged.
 
