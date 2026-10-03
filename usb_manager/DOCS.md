@@ -51,7 +51,9 @@ The startup delay takes effect on the next add-on start.
 
 Settings live in `/data/usb-manager-config.json` and survive restarts/updates.
 Existing Supervisor options are imported once when this file does not exist.
-Later Supervisor option edits do not replace the configuration saved by the UI.
+Supervisor has no runtime options form. Manage ports and USB exclusions in the
+Web UI; network mappings remain in Supervisor. Before upgrading a legacy
+installation, start its UI once to persist the imported options, or export a backup.
 New installs start with no ports and keep the UI running so you can add the first.
 
 **Export backup** exports the current form without the MQTT password.

@@ -1,6 +1,6 @@
 name: "USB Manager"
 description: "Support: https://buymeacoffee.com/leon_bell | https://ko-fi.com/leonbell | https://paypal.me/leonbell95. Identify USB devices by their responses and expose stable TCP ports. Configure everything in the Web UI."
-version: "1.12.0"
+version: "1.12.1"
 url: "https://github.com/thaihoang987/addon-usb-manager"
 slug: "usb_manager"
 init: false
@@ -26,44 +26,6 @@ ports:
   6008/tcp: 6008
   6009/tcp: 6009
   6010/tcp: 6010
-options:
-  exclude_usb: []
-  ports: []
-schema:
-  loglevel: "list(error|warning|info|debug)?"
-  scan_glob: "str?"
-  exclude_usb: ["str"]
-  mqtt_host: "str?"
-  mqtt_port: "int(1,65535)?"
-  mqtt_username: "str?"
-  mqtt_password: "password?"
-  settle_delay_s: "int(0,120)?"
-  default_probe_timeout_s: "float?"
-  default_rescan_interval_s: "int(1,3600)?"
-  passive_listen_s: "float?"
-  ports:
-    - name: "str"
-      friendly_name: "str?"
-      enabled: "bool?"
-      protocol: "list(raw|modbus_rtu)"
-      baud: "list(1200|2400|4800|9600|19200|38400|57600|115200)"
-      unit_id: "int?"
-      function_code: "int?"
-      start_address: "int?"
-      quantity: "int?"
-      value: "int?"
-      send_command: "str?"
-      send_command_2: "str?"
-      expected_response: "str?"
-      expected_response_2: "str?"
-      match_mode: "list(exact|contains|startswith|fuzzy)"
-      fuzzy_threshold: "int(1,100)?"
-      probe_timeout_s: "float?"
-      rescan_interval_s: "int(1,3600)?"
-      output_mode: "list(tcp|pty)"
-      tcp_port: "int?"
-      mbap_rtu_bridge: "bool?"
-      modbus_response_timeout_s: "float(0.1,30)?"
-      pty_symlink: "str?"
-      on_connect_send: "str?"
+options: {}
+schema: false
 image: "ghcr.io/thaihoang987/addon-usb-manager"
