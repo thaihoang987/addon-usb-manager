@@ -40,7 +40,9 @@ prebuilt AMD64/ARM64 images when the release workflow has finished.
 2. Set a unique ID, display name, baud rate, Raw/Modbus protocol and TCP port.
 3. Enter a probe command and a distinctive expected response. Use `text:` for
    text or `hex:` for bytes. For Modbus, enter the unit ID and read parameters.
-4. Use **Get Response** to inspect real replies, then check your matching rule.
+4. Under **Capture a response from a connected USB device**, pick a plugged-in
+   USB device and click **Send & capture response**, then **Use as response
+   signature 1** (Modbus: **Keep the fixed part only** if register values change).
 5. Click **Keep port changes (Giữ thay đổi port)**, then **Save and apply (Lưu và áp dụng)**.
 6. Connect Node-RED or another client to `HOME_ASSISTANT_IP:TCP_PORT`.
 

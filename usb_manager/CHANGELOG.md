@@ -6,7 +6,18 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
-## Unreleased
+## 1.12.3
+
+- Port editor: pick a connected USB device and **Send & capture response** to fill
+  the response signature from the real reply, with an immediate match check.
+  Devices held by other ports are disabled; the edited port's own device is shared.
+- Modbus: new **Check CRC + unit ID + function code** option. A Modbus port now
+  needs a response signature, the CRC check, or both (both must then match).
+  Existing Modbus ports without a response keep CRC identification.
+- Port cards show the USB device each port currently matches.
+- Checking a rule no longer requires the port ID to be filled in first.
+
+## 1.12.2
 
 - Add ready-to-edit UART, Modbus and PTY templates, Vietnamese/English settings and Home Assistant time synchronization.
 - Shorten interface instructions.

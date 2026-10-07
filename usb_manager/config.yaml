@@ -1,6 +1,6 @@
 name: "USB Manager"
 description: "Support: https://buymeacoffee.com/leon_bell | https://ko-fi.com/leonbell | https://paypal.me/leonbell95. Identify USB devices by their responses and expose stable TCP ports. Configure everything in the Web UI."
-version: "1.12.0"
+version: "1.12.3"
 url: "https://github.com/thaihoang987/addon-usb-manager"
 slug: "usb_manager"
 init: false
