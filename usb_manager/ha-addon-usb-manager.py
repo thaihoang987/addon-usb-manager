@@ -2412,67 +2412,72 @@ _SPY_PAGE_HTML = """<!doctype html>
 <meta charset="utf-8">
 <title>USB Manager</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script id="theme_init">
+(function(){var t=null;try{t=localStorage.getItem('usb_manager_theme');}catch(e){}
+if(t!=='light'&&t!=='dark')t=window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';
+document.documentElement.dataset.theme=t;})();
+</script>
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; background:#0f1115; color:#e6e6e6; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; background:var(--bg); color:var(--text); }
   h1 { font-size: 1.2rem; }
-  label { display:block; margin-top:12px; font-size:0.85rem; color:#9aa0a6; }
+  label { display:block; margin-top:12px; font-size:0.85rem; color:var(--muted); }
   select, input, button { width:100%; box-sizing:border-box; padding:8px; margin-top:4px; font-size:1rem;
-    background:#1c1f26; color:#e6e6e6; border:1px solid #333842; border-radius:6px; }
+    background:var(--field); color:var(--text); border:1px solid var(--line); border-radius:6px; }
   input[type="number"], .narrow { max-width:160px; }
-  button { background:#2f6feb; color:white; border:none; cursor:pointer; margin-top:14px; font-weight:600; }
+  button { background:var(--blue); color:white; border:none; cursor:pointer; margin-top:14px; font-weight:600; }
   button:disabled { opacity:0.5; cursor:not-allowed; }
   .row { display:flex; gap:10px; flex-wrap:wrap; }
   .row > div { flex:0 0 auto; }
   table.log { width:100%; border-collapse:collapse; margin-top:8px; font-size:0.8rem; }
-  table.log th, table.log td { text-align:left; padding:5px 8px; border-bottom:1px solid #333842; vertical-align:top; }
-  table.log th { color:#9aa0a6; font-weight:600; position:sticky; top:0; background:#0f1115; }
+  table.log th, table.log td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  table.log th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--bg); }
   table.log td.mono { font-family:monospace; word-break:break-all; }
-  table.log tr.err td { color:#ff6b6b; }
-  .card { border:1px solid #333842; border-radius:8px; padding:16px; background:#161a20; }
+  table.log tr.err td { color:var(--danger); }
+  .card { border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--panel); }
   .card h2 { margin-top:0; font-size:0.95rem; }
   .card-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-top:16px; }
-  pre { background:#1c1f26; padding:10px; border-radius:6px; white-space:pre-wrap; word-break:break-all; font-size:0.85rem; }
+  pre { background:var(--field); padding:10px; border-radius:6px; white-space:pre-wrap; word-break:break-all; font-size:0.85rem; }
   .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:0.75rem; margin-left:6px; }
-  .badge.free { background:#1e4620; color:#7ee787; }
-  .badge.claimed { background:#4a3410; color:#f0b429; }
+  .badge.free { background:var(--ok-bg); color:var(--ok); }
+  .badge.claimed { background:var(--warn-bg); color:var(--warn); }
   .copybox { display:flex; gap:6px; align-items:center; margin-top:4px; }
   .copybox input { flex:1; font-family:monospace; }
   .copybox button { width:auto; margin-top:0; padding:8px 12px; }
-  .note { color:#f0b429; font-size:0.85rem; margin-top:8px; }
-  .err { color:#ff6b6b; font-size:0.9rem; margin-top:8px; }
-  .busy-box { margin-top:10px; padding:8px 10px; border:1px dashed #333842; border-radius:6px; font-size:0.85rem; }
+  .note { color:var(--warn); font-size:0.85rem; margin-top:8px; }
+  .err { color:var(--danger); font-size:0.9rem; margin-top:8px; }
+  .busy-box { margin-top:10px; padding:8px 10px; border:1px dashed var(--line); border-radius:6px; font-size:0.85rem; }
   .hold-off, .hold-on { margin-top:8px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-  .hold-on { color:#f0b429; }
+  .hold-on { color:var(--warn); }
   .hold-btn { width:auto; margin-top:0; padding:6px 12px; }
-  .hold-btn.take { background:#8a4b08; }
-  .hold-btn.release { background:#1f6f3a; }
+  .hold-btn.take { background:var(--warn-strong); }
+  .hold-btn.release { background:var(--ok-strong); }
   table.ports { width:100%; border-collapse:collapse; margin-top:8px; font-size:0.85rem; }
-  table.ports th, table.ports td { text-align:left; padding:6px 8px; border-bottom:1px solid #333842; }
-  table.ports th { color:#9aa0a6; font-weight:600; }
+  table.ports th, table.ports td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  table.ports th { color:var(--muted); font-weight:600; }
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
-  .dot.off { background:#666; }
-  .dot.waiting { background:#f0b429; }
-  .dot.idle { background:#5b9bd5; }
-  .dot.connected { background:#3fb950; }
-  .tab-bar { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid #333842; }
-  .tab-btn { width:auto; margin-top:0; background:transparent; color:#9aa0a6; border:none;
+  .dot.off { background:var(--faint); }
+  .dot.waiting { background:var(--warn); }
+  .dot.idle { background:var(--info); }
+  .dot.connected { background:var(--ok); }
+  .tab-bar { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid var(--line); }
+  .tab-btn { width:auto; margin-top:0; background:transparent; color:var(--muted); border:none;
     border-bottom:3px solid transparent; border-radius:0; padding:10px 16px; font-weight:600; }
-  .tab-btn.active { color:#e6e6e6; border-bottom-color:#2f6feb; }
+  .tab-btn.active { color:var(--text); border-bottom-color:var(--blue); }
   .tab-content { display:none; }
   .tab-content.active { display:block; }
-  tr.log-connect td { color:#7ee787; }
-  tr.log-disconnect td { color:#ff6b6b; }
-  tr.log-warning td { color:#f0b429; }
-  tr.log-error td { color:#ff6b6b; font-weight:600; }
-  tr.log-client td { color:#5b9bd5; }
-  tr.log-info td { color:#9aa0a6; }
+  tr.log-connect td { color:var(--ok); }
+  tr.log-disconnect td { color:var(--danger); }
+  tr.log-warning td { color:var(--warn); }
+  tr.log-error td { color:var(--danger); font-weight:600; }
+  tr.log-client td { color:var(--info); }
+  tr.log-info td { color:var(--muted); }
   .log-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:600; white-space:nowrap; }
-  .log-badge.connect { background:#1e4620; color:#7ee787; }
-  .log-badge.disconnect { background:#4a1f1f; color:#ff8080; }
-  .log-badge.warning { background:#4a3410; color:#f0b429; }
-  .log-badge.error { background:#4a1f1f; color:#ff6b6b; }
-  .log-badge.client { background:#1c3a52; color:#5b9bd5; }
-  .log-badge.info { background:#262b33; color:#9aa0a6; }
+  .log-badge.connect { background:var(--ok-bg); color:var(--ok); }
+  .log-badge.disconnect { background:var(--danger-bg); color:var(--danger); }
+  .log-badge.warning { background:var(--warn-bg); color:var(--warn); }
+  .log-badge.error { background:var(--danger-bg); color:var(--danger); }
+  .log-badge.client { background:var(--info-bg); color:var(--info); }
+  .log-badge.info { background:var(--chip); color:var(--muted); }
 </style>
 </head>
 <body>
@@ -2487,20 +2492,21 @@ _SPY_PAGE_HTML = """<!doctype html>
   <button type="button" class="tab-btn" data-tab="tab_log">≡ Nhật ký</button>
 </div>
 
+<button type="button" id="theme_toggle_btn" title="Đổi giao diện sáng/tối" aria-label="Đổi giao diện sáng/tối">🌙</button>
 <button type="button" id="settings_gear_btn" title="Cài đặt"
   style="position:fixed; top:12px; right:12px; width:auto; margin-top:0; padding:8px 10px; z-index:100;
-    background:#1c1f26; border:1px solid #333842; font-size:1.1rem; border-radius:6px;">⚙️</button>
-<div id="addon_version_label" style="position:fixed; top:60px; right:14px; z-index:90; font-size:0.7rem; color:#666;"></div>
+    background:var(--field); border:1px solid var(--line); font-size:1.1rem; border-radius:6px;">⚙️</button>
+<div id="addon_version_label" style="position:fixed; top:60px; right:14px; z-index:90; font-size:0.7rem; color:var(--faint);"></div>
 
 <div id="settings_panel" style="display:none; position:fixed; top:54px; right:12px; width:300px; z-index:100;
-  background:#161a20; border:1px solid #333842; border-radius:8px; padding:16px; box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; box-shadow:0 4px 16px rgba(0,0,0,0.4);">
   <h2 style="margin-top:0">Cài đặt</h2>
   <label for="ui_language">Ngôn ngữ</label>
   <select id="ui_language" data-no-translate><option value="vi">Tiếng Việt</option><option value="en">English</option></select>
   <label>Giờ Home Assistant</label>
   <div id="app_clock" data-no-translate>—</div>
   <small id="app_timezone" data-no-translate>—</small>
-  <hr style="border-color:#263447;margin:18px 0">
+  <hr style="border-color:var(--line);margin:18px 0">
   <div id="storage_usage_info">Đang tính...</div>
   <button type="button" id="clear_comm_storage_btn">Xóa kết quả thử đã lưu</button>
   <p>Giữ nguyên cấu hình và ghi chú thiết bị.</p>
@@ -2509,12 +2515,12 @@ _SPY_PAGE_HTML = """<!doctype html>
 <div id="tab_overview" class="tab-content">
 <div class="overview-intro"><div><h2>Kết nối đúng thiết bị. Giữ nguyên cổng TCP.</h2><p>Theo dõi kết nối và quản lý thiết bị USB từ một nơi.</p></div><button type="button" class="primary" onclick="showTab('tab_config')">Quản lý cổng ↗</button></div>
 <div class="metric-grid"><div class="metric"><span>Cổng đã cấu hình</span><strong id="metric_ports">—</strong><small>Danh tính cố định</small></div><div class="metric"><span>USB đã nhận diện</span><strong id="metric_online">—</strong><small>Khớp phản hồi thiết bị</small></div><div class="metric"><span>Client đang kết nối</span><strong id="metric_clients">—</strong><small>Kết nối TCP hiện tại</small></div><div class="metric"><span>Đang chờ thiết bị</span><strong id="metric_waiting">—</strong><small>Tự động dò lại</small></div></div>
-<div id="mqtt_status" style="margin-bottom:12px; font-size:0.85rem; color:#9aa0a6;">Đang kiểm tra MQTT...</div>
+<div id="mqtt_status" style="margin-bottom:12px; font-size:0.85rem; color:var(--muted);">Đang kiểm tra MQTT...</div>
 
 <h2 style="font-size:1rem; margin-top:0;">Danh sách port ảo</h2>
 <div id="ports_list"><i>Đang tải...</i></div>
 
-<hr style="border-color:#333842; margin:20px 0;">
+<hr style="border-color:var(--line); margin:20px 0;">
 
 <h2 style="font-size:1rem; margin-top:0;">Tất cả cổng USB đang cắm trên host</h2>
 <p class="section-description">USB trên máy chủ, gồm cả thiết bị đã loại trừ. Ghi chú tự lưu; quản lý loại trừ trong Cấu hình → Cài đặt chung.</p>
@@ -2535,13 +2541,13 @@ _SPY_PAGE_HTML = """<!doctype html>
     <input type="radio" name="gr_source" id="gr_source_local" value="local" style="width:auto; margin-top:0;">
     <span>USB trên máy tính này</span>
   </label>
-  <p id="local_pc_support_note" style="color:#9aa0a6; font-size:0.8rem; margin-top:6px;">USB trên máy tính cần Chrome/Edge và HTTPS.</p>
+  <p id="local_pc_support_note" style="color:var(--muted); font-size:0.8rem; margin-top:6px;">USB trên máy tính cần Chrome/Edge và HTTPS.</p>
   <div id="local_pc_section" style="display:none; margin-top:8px;">
     <div class="row">
       <div><button type="button" id="local_connect_btn">🔌 Chọn cổng USB trên máy này</button></div>
-      <div><button type="button" id="local_disconnect_btn" style="background:#333842;">Ngắt kết nối</button></div>
+      <div><button type="button" id="local_disconnect_btn" style="background:var(--line);">Ngắt kết nối</button></div>
     </div>
-    <div id="local_pc_status" style="margin-top:8px; font-size:0.85rem; color:#9aa0a6;">Chưa kết nối.</div>
+    <div id="local_pc_status" style="margin-top:8px; font-size:0.85rem; color:var(--muted);">Chưa kết nối.</div>
     <label>Ghi chú trên máy tính này</label>
     <input id="local_pc_note" type="text" placeholder="vd: relay test trên bàn, chưa gắn tủ điện">
   </div>
@@ -2610,7 +2616,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 
 <div id="tab_comm" class="tab-content">
 <h1 style="font-size:1.1rem;">Công cụ Modbus</h1>
-<p style="color:#9aa0a6; font-size:0.85rem;">Quét địa chỉ, đọc thanh ghi và thử lệnh Modbus.</p>
+<p style="color:var(--muted); font-size:0.85rem;">Quét địa chỉ, đọc thanh ghi và thử lệnh Modbus.</p>
 
 <div class="card" style="margin-top:12px;">
   <h2>Cổng kết nối</h2>
@@ -2625,9 +2631,9 @@ _SPY_PAGE_HTML = """<!doctype html>
   <div id="comm_local_pc_section" style="display:none; margin-top:8px;">
     <div class="row">
       <div><button type="button" id="comm_local_connect_btn">🔌 Chọn cổng USB trên máy này</button></div>
-      <div><button type="button" id="comm_local_disconnect_btn" style="background:#333842;">Ngắt kết nối</button></div>
+      <div><button type="button" id="comm_local_disconnect_btn" style="background:var(--line);">Ngắt kết nối</button></div>
     </div>
-    <div id="comm_local_pc_status" style="margin-top:8px; font-size:0.85rem; color:#9aa0a6;">Chưa kết nối.</div>
+    <div id="comm_local_pc_status" style="margin-top:8px; font-size:0.85rem; color:var(--muted);">Chưa kết nối.</div>
     <label>Ghi chú trên máy tính này</label>
     <input id="comm_local_pc_note" type="text" placeholder="vd: relay test trên bàn, chưa gắn tủ điện">
   </div>
@@ -2658,7 +2664,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 <div class="card-grid">
   <div class="card">
     <h2>1. Quét Unit ID</h2>
-    <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">Bus RTU có bao nhiêu thiết bị, địa chỉ bao nhiêu.</p>
+    <p style="color:var(--muted); font-size:0.8rem; margin-top:0;">Bus RTU có bao nhiêu thiết bị, địa chỉ bao nhiêu.</p>
     <div class="row">
       <div><label>Unit ID từ</label><input id="scan_unit_start" type="number" value="1"></div>
       <div><label>đến</label><input id="scan_unit_end" type="number" value="20"></div>
@@ -2694,7 +2700,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 
   <div class="card">
     <h2>3. Đổi địa chỉ thiết bị</h2>
-    <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">Chỉ ghi vào thanh ghi địa chỉ đúng theo tài liệu thiết bị.</p>
+    <p style="color:var(--muted); font-size:0.8rem; margin-top:0;">Chỉ ghi vào thanh ghi địa chỉ đúng theo tài liệu thiết bị.</p>
     <div class="row">
       <div><label>Unit ID hiện tại</label><input id="setaddr_unit" type="number" value="1"></div>
       <div><label>Function code</label><input id="setaddr_fc" type="number" value="6"></div>
@@ -2710,7 +2716,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 
   <div class="card">
     <h2>4. Gửi lặp lại + log</h2>
-    <p style="color:#9aa0a6; font-size:0.8rem; margin-top:0;">Test raw/AT/UART hoặc modbus_rtu, log ở khung bên dưới.</p>
+    <p style="color:var(--muted); font-size:0.8rem; margin-top:0;">Test raw/AT/UART hoặc modbus_rtu, log ở khung bên dưới.</p>
     <label>Kiểu lệnh</label>
     <select id="repeat_protocol">
       <option value="raw" selected>Raw · HEX / text</option>
@@ -2736,19 +2742,19 @@ _SPY_PAGE_HTML = """<!doctype html>
     </div>
     <div class="row">
       <div><button type="button" id="repeat_btn">▶ Bắt đầu gửi</button></div>
-      <div><button type="button" id="repeat_clear_btn" style="background:#333842;">🗑 Xoá log</button></div>
+      <div><button type="button" id="repeat_clear_btn" style="background:var(--line);">🗑 Xoá log</button></div>
     </div>
   </div>
 </div>
 
-<hr style="border-color:#333842; margin:24px 0;">
+<hr style="border-color:var(--line); margin:24px 0;">
 <h2 style="font-size:1.05rem;">Kết quả</h2>
 
 <div id="scan_unit_result" style="margin-top:8px;"></div>
 <div id="scan_reg_result" style="margin-top:8px;"></div>
 <div id="setaddr_result" style="margin-top:8px;"></div>
 
-<div style="margin-top:12px; max-height:420px; overflow-y:auto; border:1px solid #333842; border-radius:6px;">
+<div style="margin-top:12px; max-height:420px; overflow-y:auto; border:1px solid var(--line); border-radius:6px;">
   <table class="log">
     <thead><tr><th>Thời gian</th><th>Gửi (TX)</th><th>Nhận (RX)</th></tr></thead>
     <tbody id="repeat_log"></tbody>
@@ -2758,7 +2764,7 @@ _SPY_PAGE_HTML = """<!doctype html>
 
 <div id="tab_log" class="tab-content">
 <h1 style="font-size:1.1rem;">Nhật ký hoạt động</h1>
-<p style="color:#9aa0a6; font-size:0.85rem;">Theo dõi kết nối và lỗi gần đây.</p>
+<p style="color:var(--muted); font-size:0.85rem;">Theo dõi kết nối và lỗi gần đây.</p>
 
 <div class="card" style="margin-bottom:16px;">
   <h2>Test kết nối nhanh</h2>
@@ -2777,7 +2783,7 @@ _SPY_PAGE_HTML = """<!doctype html>
   <option value="info">⚪ Thông tin khác</option>
 </select>
 
-<div style="margin-top:12px; max-height:520px; overflow-y:auto; border:1px solid #333842; border-radius:6px;">
+<div style="margin-top:12px; max-height:520px; overflow-y:auto; border:1px solid var(--line); border-radius:6px;">
   <table class="log">
     <thead><tr><th>Thời gian</th><th>Loại</th><th>Port</th><th>Nội dung</th></tr></thead>
     <tbody id="event_log_body"></tbody>
@@ -3060,7 +3066,7 @@ async function loadUsbDevices() {
       const deleteBtn = d.unavailable
         ? `<button type="button" class="delete-note-btn" data-note-key="${escAttr(d.note_key)}"
             title="Xoá ghi chú/lịch sử thiết bị này"
-            style="width:auto; margin-top:0; padding:6px 8px; background:#4a1f1f; color:#ff8080;"
+            style="width:auto; margin-top:0; padding:6px 8px; background:var(--danger-bg); color:var(--danger);"
             >Xoá</button>`
         : '';
       const noteApi = d.note_store === 'port' ? 'api/port_note' : 'api/usb_note';
@@ -3200,13 +3206,13 @@ async function loadMqttStatus() {
     const s = await res.json();
     if (s.connected) {
       out.innerHTML = `🟢 MQTT: Đã kết nối (${s.host}:${s.port})`;
-      out.style.color = '#3fb950';
+      out.style.color = 'var(--ok)';
     } else if (s.configured) {
       out.innerHTML = `🔴 MQTT: Mất kết nối tới ${s.host}:${s.port} - entity HA sẽ không cập nhật`;
-      out.style.color = '#ff6b6b';
+      out.style.color = 'var(--danger)';
     } else {
       out.innerHTML = '⚪ MQTT: Chưa cấu hình';
-      out.style.color = '#9aa0a6';
+      out.style.color = 'var(--muted)';
     }
   } catch (e) {
     out.innerHTML = '⚪ MQTT: Không kiểm tra được trạng thái';
@@ -3534,8 +3540,8 @@ function syncLocalPcNoteInputs(value) {
 async function connectLocalPcShared(baud) {
   if (!localPcSupported()) {
     updateAllLocalPcStatus(!('serial' in navigator)
-      ? '<span style="color:#ff6b6b;">Trình duyệt không hỗ trợ Web Serial API (chỉ Chrome/Edge/Opera).</span>'
-      : '<span style="color:#ff6b6b;">Cần truy cập qua HTTPS (hoặc localhost) - trang hiện KHÔNG ở secure context.</span>');
+      ? '<span style="color:var(--danger);">Trình duyệt không hỗ trợ Web Serial API (chỉ Chrome/Edge/Opera).</span>'
+      : '<span style="color:var(--danger);">Cần truy cập qua HTTPS (hoặc localhost) - trang hiện KHÔNG ở secure context.</span>');
     return;
   }
   if (_localPort) {
@@ -3550,7 +3556,7 @@ async function connectLocalPcShared(baud) {
     syncLocalPcNoteInputs(loadLocalPcNote(_localPcNoteKey));
     updateAllLocalPcStatus(`✅ Đã kết nối (VID:PID = ${info.usbVendorId ?? '?'}:${info.usbProductId ?? '?'})`);
   } catch (e) {
-    updateAllLocalPcStatus(`<span style="color:#ff6b6b;">Lỗi: ${e.message || e}</span>`);
+    updateAllLocalPcStatus(`<span style="color:var(--danger);">Lỗi: ${e.message || e}</span>`);
   }
 }
 
@@ -3900,6 +3906,17 @@ function updateStorageUsageInfo() {
   `;
 }
 
+(function(){
+  const btn=document.getElementById('theme_toggle_btn');
+  const sync=()=>{const light=document.documentElement.dataset.theme==='light';btn.textContent=light?'☀️':'🌙';};
+  btn.addEventListener('click',()=>{
+    const next=document.documentElement.dataset.theme==='light'?'dark':'light';
+    document.documentElement.dataset.theme=next;
+    try{localStorage.setItem('usb_manager_theme',next);}catch(e){}
+    sync();
+  });
+  sync();
+})();
 document.getElementById('settings_gear_btn').addEventListener('click', () => {
   const panel = document.getElementById('settings_panel');
   const willShow = panel.style.display === 'none';
@@ -4047,7 +4064,7 @@ async function loadPortTestList() {
         <td>:${p.tcp_port}</td>
         <td><button type="button" class="port-test-btn" data-port-name="${escAttr(p.name)}"
           style="width:auto; margin-top:0; padding:4px 8px; font-size:0.8rem;">▶ Test</button></td>
-        <td id="port_test_result_${escAttr(p.name)}" style="font-size:0.85rem; color:#9aa0a6;">-</td>
+        <td id="port_test_result_${escAttr(p.name)}" style="font-size:0.85rem; color:var(--muted);">-</td>
       </tr>`;
     }
     html += '</table>';
@@ -4065,7 +4082,7 @@ async function runPortTest(btn) {
   const resultCell = document.getElementById('port_test_result_' + name);
   btn.disabled = true;
   resultCell.textContent = 'Đang test...';
-  resultCell.style.color = '#9aa0a6';
+  resultCell.style.color = 'var(--muted)';
   try {
     const res = await fetch('api/test_port_connection', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -4074,14 +4091,14 @@ async function runPortTest(btn) {
     const result = await res.json();
     if (result.ok) {
       resultCell.textContent = `✅ OK (${result.latency_ms}ms)`;
-      resultCell.style.color = '#7ee787';
+      resultCell.style.color = 'var(--ok)';
     } else {
       resultCell.textContent = '❌ ' + (result.error || 'lỗi không rõ');
-      resultCell.style.color = '#ff6b6b';
+      resultCell.style.color = 'var(--danger)';
     }
   } catch (e) {
     resultCell.textContent = '❌ Lỗi kết nối khi gọi test.';
-    resultCell.style.color = '#ff6b6b';
+    resultCell.style.color = 'var(--danger)';
   }
   btn.disabled = false;
   loadEventLog();
@@ -4153,31 +4170,31 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
  .cfg-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px 20px}
  .cfg-grid input[type=number] {max-width:none}
  #tab_config input[type=checkbox] {width:auto;margin-right:8px}
- #tab_config textarea {width:100%;box-sizing:border-box;background:#1c1f26;color:#e6e6e6;border:1px solid #333842;border-radius:6px;padding:8px;margin-top:4px}
- #cfg_editor {color:#e6e6e6;width:min(860px,90vw);max-height:85vh;overflow:auto}
+ #tab_config textarea {width:100%;box-sizing:border-box;background:var(--field);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:4px}
+ #cfg_editor {color:var(--text);width:min(860px,90vw);max-height:85vh;overflow:auto}
  #cfg_editor::backdrop {background:#0009}
- #tab_config details {margin-top:16px;padding:12px;border:1px solid #333842;border-radius:8px}
+ #tab_config details {margin-top:16px;padding:12px;border:1px solid var(--line);border-radius:8px}
  #tab_config summary {cursor:pointer;font-weight:600}
  .cfg-port {display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:12px}
  .cfg-port h3 {margin:0 0 6px;font-size:1rem}
- .cfg-port p {margin:4px 0;color:#9aa0a6;font-size:.85rem}
- #cfg_save {background:#238636}
- .capture-box {margin-top:16px;padding:14px 16px;border:1px dashed #3b506a;border-radius:10px;background:#101a28}
+ .cfg-port p {margin:4px 0;color:var(--muted);font-size:.85rem}
+ #cfg_save {background:var(--ok-strong)}
+ .capture-box {margin-top:16px;padding:14px 16px;border:1px dashed var(--line-strong);border-radius:10px;background:var(--panel-sunk)}
  .capture-box h4 {margin:0 0 4px;font-size:14px}
  .capture-box select {flex:1 1 260px;margin:0;width:auto}
  #cfg_capture_result,.step-result {font-size:12px;overflow-wrap:anywhere}
  #cfg_capture_result code,.step-result code {color:var(--text)}
- .probe-step {margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#0f1824}
+ .probe-step {margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel-sunk)}
  .probe-step-head {display:flex;align-items:center;gap:10px}
  .probe-step-head strong {font-size:14px}
  .probe-step-head .step-badge {font-size:11px}
  .probe-step-head .step-badge.ok {color:var(--accent)}
- .probe-step-head .step-badge.fail {color:#ff9f9f}
+ .probe-step-head .step-badge.fail {color:var(--danger)}
  .probe-step-head button {margin-left:auto!important;padding:5px 10px;font-size:12px;width:auto}
  .probe-step .cfg-toolbar {position:static!important;margin:10px 0 0!important;padding:0!important;border:0!important;background:none!important}
- .probe-step .cfg-toolbar button {padding:7px 12px;font-size:12px;background:#25364d!important;color:var(--text)!important}
+ .probe-step .cfg-toolbar button {padding:7px 12px;font-size:12px;background:var(--btn)!important;color:var(--text)!important}
  .step-add {margin-top:12px;width:auto}
- .req {color:#ff8a8a;font-weight:700;margin-left:3px}
+ .req {color:var(--danger);font-weight:700;margin-left:3px}
  .req-legend {margin:4px 0 0}
  .req-legend .req {margin:0 3px 0 0}
  .port-device {font-size:11px;color:var(--muted)}
@@ -4185,38 +4202,70 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
  .tab-bar {flex-wrap:wrap;padding-right:46px}
 
 /* Shared visual system: local assets only, responsive within HA Ingress. */
-:root{color-scheme:dark;--bg:#0b111b;--panel:#121c2a;--line:#263447;--text:#e8edf5;--muted:#93a4bb;--accent:#5de4bb}
+:root{color-scheme:dark;--bg:#0b111b;--panel:#121c2a;--panel-glass:#121c2af5;--sidebar:#101925;--field:#0d1623;--panel-sunk:#0f1824;--field-readonly:#172131;--hover:#192637;--btn:#25364d;--btn-line:#3a5170;--btn-hover:#324862;--btn-hover-line:#6b839d;--chip:#1d2b3e;--note-bg:#162738;--note-line:#5087ac;--accent:#5de4bb;--accent-hover:#8aefd0;--accent-soft:#19332f;--accent-line:#2a524a;--on-accent:#082d24;--line:#2c3c52;--line-strong:#42587a;--text:#f1f5fa;--muted:#b9c6d6;--label:#d6deea;--faint:#92a3b9;--danger:#ff8f8f;--danger-bg:#4a1f1f;--warn:#f5c04a;--warn-bg:#4a3410;--warn-strong:#8a4b08;--ok:#7ee787;--ok-bg:#1e4620;--ok-strong:#238636;--info:#7ab4e8;--info-bg:#1c3a52;--blue:#2f6feb}:root[data-theme="light"]{color-scheme:light;--bg:#f2f5f9;--panel:#ffffff;--panel-glass:#fffffff2;--sidebar:#e9eef5;--field:#ffffff;--panel-sunk:#f6f8fb;--field-readonly:#eceff4;--hover:#e3e9f1;--btn:#e4eaf2;--btn-line:#c3cedb;--btn-hover:#d6dfea;--btn-hover-line:#94a6bb;--chip:#e7edf4;--note-bg:#e6f0f8;--note-line:#3f7fae;--accent:#06704f;--accent-hover:#0a8761;--accent-soft:#d9f2e9;--accent-line:#97d5c0;--on-accent:#ffffff;--line:#d3dbe6;--line-strong:#aebccd;--text:#111c2b;--muted:#3f4f63;--label:#1f2d40;--faint:#5c6b7e;--danger:#c42525;--danger-bg:#fde6e6;--warn:#9a5a00;--warn-bg:#fff1d1;--warn-strong:#b86a00;--ok:#1b7f37;--ok-bg:#dff4e4;--ok-strong:#1b7f37;--info:#1c66aa;--info-bg:#e1edf9;--blue:#2f6feb}
 *{box-sizing:border-box} [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:118px 32px 40px 264px}
 h1,h2,h3{letter-spacing:-.025em;color:var(--text)}h1{font-size:26px}h2{font-size:19px!important}h3{font-size:16px}p{color:var(--muted)}
 .app-header{position:absolute;top:0;left:232px;right:0;min-height:94px;padding:21px 32px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
-.app-header h1{margin:1px 0;font-size:24px}.eyebrow{font-size:10px;letter-spacing:.16em;font-weight:700;color:var(--muted)}.header-tag{color:var(--accent);border:1px solid #28574e;background:#142d2a;padding:5px 12px;border-radius:30px;margin-right:62px;font-size:12px}
-.tab-bar{position:fixed;inset:0 auto 0 0;width:232px;padding:26px 16px!important;background:#101925;border-right:1px solid var(--line);border-bottom:none;display:flex;flex-direction:column;gap:8px;margin:0;z-index:20;overflow:auto}
-.brand{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;margin-bottom:40px;padding:0 4px}.brand small{display:block;font-size:10px;font-weight:400;color:var(--muted);letter-spacing:.02em}.brand-icon{background:var(--accent);color:#072c24;border-radius:12px;width:38px;height:38px;display:grid;place-items:center;font-size:26px}.nav-caption{font-size:9px;letter-spacing:.13em;color:#71839b;margin:0 12px 8px}.tab-btn{width:100%;border-radius:9px;border:1px solid transparent;text-align:left;padding:11px 13px;color:var(--muted);font-size:13px;white-space:nowrap;background:transparent}.tab-btn:hover{background:#192637}.tab-bar .tab-btn.active,.tab-bar .tab-btn.active:hover{background:#19332f;color:var(--accent);border-color:#285047}
+.app-header h1{margin:1px 0;font-size:24px}.eyebrow{font-size:10px;letter-spacing:.16em;font-weight:700;color:var(--muted)}.header-tag{color:var(--accent);border:1px solid var(--accent-line);background:var(--accent-soft);padding:5px 12px;border-radius:30px;margin-right:62px;font-size:12px}
+.tab-bar{position:fixed;inset:0 auto 0 0;width:232px;padding:26px 16px!important;background:var(--sidebar);border-right:1px solid var(--line);border-bottom:none;display:flex;flex-direction:column;gap:8px;margin:0;z-index:20;overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;margin-bottom:40px;padding:0 4px}.brand small{display:block;font-size:10px;font-weight:400;color:var(--muted);letter-spacing:.02em}.brand-icon{background:var(--accent);color:var(--on-accent);border-radius:12px;width:38px;height:38px;display:grid;place-items:center;font-size:26px}.nav-caption{font-size:9px;letter-spacing:.13em;color:var(--faint);margin:0 12px 8px}.tab-btn{width:100%;border-radius:9px;border:1px solid transparent;text-align:left;padding:11px 13px;color:var(--muted);font-size:13px;white-space:nowrap;background:transparent}.tab-btn:hover{background:var(--hover)}.tab-bar .tab-btn.active,.tab-bar .tab-btn.active:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
 .tab-content{max-width:1440px;margin:auto}.overview-intro{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:24px}.overview-intro h2{margin:0 0 4px;font-size:23px!important}.overview-intro p{margin:0}.overview-intro button{width:auto;white-space:nowrap}
-.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}.metric{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:19px 20px;display:flex;flex-direction:column}.metric span{font-size:12px;color:var(--muted)}.metric strong{font-size:34px;line-height:1.7;font-weight:650;color:var(--text)}.metric:nth-child(2) strong{color:var(--accent)}.metric:nth-child(4) strong{color:#f6c76d}.metric small{font-size:10px;color:#74869e}
-button{background:#25364d;border:1px solid #334862;border-radius:9px;color:var(--text);padding:10px 14px;font-size:13px;transition:background .15s, border-color .15s}button:hover:not(:disabled){background:#324862;border-color:#6b839d}button.primary,#cfg_add,#cfg_save,.edit-port{background:var(--accent);color:#082d24;border-color:var(--accent)}button.primary:hover:not(:disabled),#cfg_save:hover:not(:disabled),#cfg_add:hover:not(:disabled),.edit-port:hover:not(:disabled){background:#8aefd0;border-color:#8aefd0}
+.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}.metric{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:19px 20px;display:flex;flex-direction:column}.metric span{font-size:12px;color:var(--muted)}.metric strong{font-size:34px;line-height:1.7;font-weight:650;color:var(--text)}.metric:nth-child(2) strong{color:var(--accent)}.metric:nth-child(4) strong{color:var(--warn)}.metric small{font-size:10px;color:var(--faint)}
+button{background:var(--btn);border:1px solid var(--btn-line);border-radius:9px;color:var(--text);padding:10px 14px;font-size:13px;transition:background .15s, border-color .15s}button:hover:not(:disabled){background:var(--btn-hover);border-color:var(--btn-hover-line)}button.primary,#cfg_add,#cfg_save,.edit-port{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}button.primary:hover:not(:disabled),#cfg_save:hover:not(:disabled),#cfg_add:hover:not(:disabled),.edit-port:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover)}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}button:disabled{opacity:.45}
-input,select,textarea{background:#0d1623;color:var(--text);border:1px solid #304057;border-radius:8px;padding:10px 12px;font:inherit;margin-top:6px;width:100%;min-height:40px}input[type=checkbox],input[type=radio]{width:17px;min-height:17px;accent-color:var(--accent)}input[type=number],.narrow{max-width:none}label{font-size:12px;color:var(--muted);margin-top:14px}input::placeholder,textarea::placeholder{color:#647790}input[readonly]{color:#8294ab;background:#172131}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.note{color:var(--muted);background:#162738;border-left:3px solid #5087ac;border-radius:5px;padding:12px 14px;font-size:12px}.err{color:#ff9f9f}.row{gap:16px}.row>div{flex:1 1 180px;min-width:0}.section-description{max-width:820px;font-size:12px}
-.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.section-heading h1{margin:4px 0 12px;font-size:28px}.count-badge{border:1px solid var(--line);border-radius:24px;padding:4px 13px;color:var(--muted);font-size:12px}.cfg-actions{position:sticky;top:10px;z-index:10;background:#121c2af5;border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:0 8px 24px #0002;margin:22px 0 12px}.cfg-toolbar{gap:8px}.cfg-toolbar button{margin:0}.toolbar-spacer{flex:1}#cfg_status{font-size:12px;padding:0 4px;min-height:22px}.port-filter{display:flex;gap:12px;margin:18px 0}.port-filter input{flex:1;margin:0}.port-filter select{width:168px;margin:0}
-#cfg_ports{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}.cfg-port{margin:0;display:flex;flex-direction:column;align-items:stretch;gap:18px;position:relative;overflow:hidden}.cfg-port:before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent)}.cfg-port.cfg-disabled:before{background:#56647a}.cfg-port h3{margin:12px 0 8px;font-size:18px}.cfg-port p{overflow-wrap:anywhere;font-size:11px;margin:8px 0}.cfg-port>div:first-child{flex:1}.port-state{display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--accent);border:1px solid #2a524a;background:#19332f;padding:2px 8px;border-radius:20px}.port-state:before{content:"";width:5px;height:5px;background:currentColor;border-radius:50%}.port-state.off{color:#91a0b6;background:#202b3b;border-color:#39465b}.port-endpoint{display:inline-block;color:var(--text);background:#1d2b3e;border-radius:6px;padding:4px 9px;font:13px ui-monospace,Consolas,monospace}.cfg-port .cfg-toolbar{border-top:1px solid var(--line);padding-top:15px}.cfg-port .cfg-toolbar button{padding:7px 13px;font-size:12px}.danger-quiet{margin-left:auto!important;color:#ffa7a7;background:transparent;border-color:transparent}.empty-state{grid-column:1/-1;text-align:center;padding:60px 28px;border:1px dashed #3b506a;border-radius:14px;background:#101a28}.empty-state h3{font-size:21px;margin:0 0 10px}.empty-state p{max-width:490px;margin:0 auto 22px}.empty-state button{width:auto;background:var(--accent);color:#082d24}
-#tab_config details{background:var(--panel);border-color:var(--line);border-radius:12px;padding:18px 20px;margin-top:20px}summary{font-size:13px;color:var(--text);padding:3px;cursor:pointer}.cfg-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px}#tab_config textarea{background:#0d1623;border-color:#304057;border-radius:8px;padding:11px;color:var(--text)}.cfg-grid>div:has(input[type=checkbox]){display:flex;align-items:center;gap:10px;padding-top:18px}.cfg-grid>div:has(input[type=checkbox]) label{margin:0;flex:1}.cfg-grid>div:has(input[type=checkbox]) input{margin:0}
-#cfg_editor{width:min(900px,calc(100vw - 40px));max-height:calc(100dvh - 48px);padding:28px;border:1px solid #42536b;background:#121c2a;border-radius:18px;box-shadow:0 24px 100px #0008;color:var(--text)}#cfg_editor::backdrop{background:#020813c9;backdrop-filter:blur(5px)}#cfg_editor h2{font-size:24px!important;margin:0 0 8px}#cfg_editor p{font-size:12px}.step-heading{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:22px;margin:25px 0 4px}.step-heading span{color:var(--accent);font-size:11px;background:#19332f;padding:5px 8px;border-radius:6px}#cfg_editor .cfg-toolbar{position:sticky;bottom:-28px;margin:20px -4px 0;padding:16px 4px;background:#121c2af5;border-top:1px solid var(--line)}#cfg_editor .cfg-toolbar button[type=submit]{background:var(--accent);color:#082d24}
-#ports_list,#usb_devices_list{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);margin:12px 0 24px;padding:6px 12px}table.ports{min-width:1050px;font-size:12px;margin:0}table.ports th,table.ports td{padding:13px 10px;border-color:var(--line)}table.ports th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}table.ports td:nth-child(2){font-weight:600;color:var(--text)}table.ports tr:hover td{background:#172334}table.log{font-size:12px}table.log th,table.log td{padding:11px;border-color:var(--line)}table.log th{background:#121c2a;color:var(--muted)}.copybox input,pre{font-family:ui-monospace,Consolas,monospace;font-size:12px}pre{background:#0d1623;border:1px solid var(--line);border-radius:10px;padding:16px}.busy-box{border-color:#4b5362;border-radius:10px;padding:14px}.badge{padding:3px 9px}
+input,select,textarea{background:var(--field);color:var(--text);border:1px solid var(--line-strong);border-radius:8px;padding:10px 12px;font:inherit;margin-top:6px;width:100%;min-height:40px}input[type=checkbox],input[type=radio]{width:17px;min-height:17px;accent-color:var(--accent)}input[type=number],.narrow{max-width:none}label{font-size:12px;color:var(--muted);margin-top:14px}input::placeholder,textarea::placeholder{color:var(--faint)}input[readonly]{color:var(--faint);background:var(--field-readonly)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.note{color:var(--muted);background:var(--note-bg);border-left:3px solid var(--note-line);border-radius:5px;padding:12px 14px;font-size:12px}.err{color:var(--danger)}.row{gap:16px}.row>div{flex:1 1 180px;min-width:0}.section-description{max-width:820px;font-size:12px}
+.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.section-heading h1{margin:4px 0 12px;font-size:28px}.count-badge{border:1px solid var(--line);border-radius:24px;padding:4px 13px;color:var(--muted);font-size:12px}.cfg-actions{position:sticky;top:10px;z-index:10;background:var(--panel-glass);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:0 8px 24px #0002;margin:22px 0 12px}.cfg-toolbar{gap:8px}.cfg-toolbar button{margin:0}.toolbar-spacer{flex:1}#cfg_status{font-size:12px;padding:0 4px;min-height:22px}.port-filter{display:flex;gap:12px;margin:18px 0}.port-filter input{flex:1;margin:0}.port-filter select{width:168px;margin:0}
+#cfg_ports{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}.cfg-port{margin:0;display:flex;flex-direction:column;align-items:stretch;gap:18px;position:relative;overflow:hidden}.cfg-port:before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent)}.cfg-port.cfg-disabled:before{background:var(--faint)}.cfg-port h3{margin:12px 0 8px;font-size:18px}.cfg-port p{overflow-wrap:anywhere;font-size:11px;margin:8px 0}.cfg-port>div:first-child{flex:1}.port-state{display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--accent);border:1px solid var(--accent-line);background:var(--accent-soft);padding:2px 8px;border-radius:20px}.port-state:before{content:"";width:5px;height:5px;background:currentColor;border-radius:50%}.port-state.off{color:var(--muted);background:var(--chip);border-color:var(--line-strong)}.port-endpoint{display:inline-block;color:var(--text);background:var(--chip);border-radius:6px;padding:4px 9px;font:13px ui-monospace,Consolas,monospace}.cfg-port .cfg-toolbar{border-top:1px solid var(--line);padding-top:15px}.cfg-port .cfg-toolbar button{padding:7px 13px;font-size:12px}.danger-quiet{margin-left:auto!important;color:var(--danger);background:transparent;border-color:transparent}.empty-state{grid-column:1/-1;text-align:center;padding:60px 28px;border:1px dashed var(--line-strong);border-radius:14px;background:var(--panel-sunk)}.empty-state h3{font-size:21px;margin:0 0 10px}.empty-state p{max-width:490px;margin:0 auto 22px}.empty-state button{width:auto;background:var(--accent);color:var(--on-accent)}
+#tab_config details{background:var(--panel);border-color:var(--line);border-radius:12px;padding:18px 20px;margin-top:20px}summary{font-size:13px;color:var(--text);padding:3px;cursor:pointer}.cfg-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px}#tab_config textarea{background:var(--field);border-color:var(--line-strong);border-radius:8px;padding:11px;color:var(--text)}.cfg-grid>div:has(input[type=checkbox]){display:flex;align-items:center;gap:10px;padding-top:18px}.cfg-grid>div:has(input[type=checkbox]) label{margin:0;flex:1}.cfg-grid>div:has(input[type=checkbox]) input{margin:0}
+#cfg_editor{width:min(900px,calc(100vw - 40px));max-height:calc(100dvh - 48px);padding:28px;border:1px solid var(--line-strong);background:var(--panel);border-radius:18px;box-shadow:0 24px 100px #0008;color:var(--text)}#cfg_editor::backdrop{background:#020813c9;backdrop-filter:blur(5px)}#cfg_editor h2{font-size:24px!important;margin:0 0 8px}#cfg_editor p{font-size:12px}.step-heading{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:22px;margin:25px 0 4px}.step-heading span{color:var(--accent);font-size:11px;background:var(--accent-soft);padding:5px 8px;border-radius:6px}#cfg_editor .cfg-toolbar{position:sticky;bottom:-28px;margin:20px -4px 0;padding:16px 4px;background:var(--panel-glass);border-top:1px solid var(--line)}#cfg_editor .cfg-toolbar button[type=submit]{background:var(--accent);color:var(--on-accent)}
+#ports_list,#usb_devices_list{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);margin:12px 0 24px;padding:6px 12px}table.ports{min-width:1050px;font-size:12px;margin:0}table.ports th,table.ports td{padding:13px 10px;border-color:var(--line)}table.ports th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}table.ports td:nth-child(2){font-weight:600;color:var(--text)}table.ports tr:hover td{background:var(--hover)}table.log{font-size:12px}table.log th,table.log td{padding:11px;border-color:var(--line)}table.log th{background:var(--panel);color:var(--muted)}.copybox input,pre{font-family:ui-monospace,Consolas,monospace;font-size:12px}pre{background:var(--field);border:1px solid var(--line);border-radius:10px;padding:16px}.busy-box{border-color:var(--line-strong);border-radius:10px;padding:14px}.badge{padding:3px 9px}
 #settings_gear_btn{position:absolute!important;top:26px!important;right:30px!important;background:var(--panel)!important;border-color:var(--line)!important;width:38px!important;height:38px;padding:4px!important}#addon_version_label{position:absolute!important;top:69px!important;right:32px!important;color:var(--muted)!important}#settings_panel{background:var(--panel)!important;border-color:var(--line)!important;border-radius:12px!important;top:76px!important;right:30px!important;max-width:calc(100vw - 32px)}
 @media(min-width:1700px){body{padding-right:64px;padding-left:296px}.app-header{padding-left:64px;padding-right:64px}}
 @media(max-width:1050px){body{padding:118px 22px 32px 214px}.tab-bar{width:192px;padding:25px 12px!important}.app-header{left:192px;padding-left:22px}.brand{font-size:14px;gap:8px}.brand small{font-size:9px}.brand-icon{width:32px;height:32px}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-intro{align-items:flex-start}.overview-intro h2{font-size:20px!important}.header-tag{display:none}}
 @media(max-width:720px){body{padding:160px 16px 28px}.app-header{left:0;min-height:80px;padding:16px 20px}.app-header h1{font-size:22px}.tab-bar{position:absolute;top:84px;left:0;right:0;bottom:auto;width:100%;padding:8px 16px!important;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);background:var(--bg)}.brand,.nav-caption{display:none}.tab-btn{width:auto;flex-shrink:0;padding:9px 12px;font-size:12px}.overview-intro{flex-direction:column;gap:8px}.overview-intro button{margin-top:4px}.metric-grid{gap:10px}.metric{padding:14px}.metric strong{font-size:28px}.metric span{font-size:11px}.metric small{font-size:9px}.cfg-actions{top:8px;gap:8px;padding:10px}.toolbar-spacer{display:none}.cfg-actions button{flex:1 1 auto;font-size:11px;padding:9px}#cfg_save{flex-basis:100%}.cfg-grid{grid-template-columns:1fr}.port-filter select{width:122px;font-size:12px}.section-heading h1{font-size:25px}.card{padding:18px}.cfg-port .cfg-toolbar{flex-wrap:nowrap}#cfg_editor{width:calc(100vw - 20px);padding:20px;max-height:calc(100dvh - 24px);border-radius:14px}#cfg_editor .cfg-toolbar{bottom:-20px}#settings_gear_btn{top:20px!important;right:18px!important}#addon_version_label{top:62px!important;right:20px!important}#settings_panel{right:16px!important}.copybox{flex-wrap:wrap}.copybox input{min-width:160px}}
 /* Port editor readability: brighter, larger labels and notes (scoped to the editor). */
-#cfg_editor form label{font-size:14px;color:#d3dcea;font-weight:500;line-height:1.4}
-#cfg_editor form p{font-size:13.5px;color:#b8c5d6;line-height:1.55}
-#cfg_editor form p.note{color:#c6d2e1}
+#cfg_editor form label{font-size:14px;color:var(--label);font-weight:500;line-height:1.4}
+#cfg_editor form p{font-size:13.5px;color:var(--muted);line-height:1.55}
+#cfg_editor form p.note{color:var(--muted)}
 #cfg_editor form summary{font-size:14px}
 #cfg_editor .req{font-size:15px}
 #cfg_editor .probe-step-head strong{font-size:15px}
 #cfg_editor .cfg-grid>div:has(input[type=checkbox]) label{font-size:14px}
 @media(max-width:720px){#cfg_editor form label{font-size:13.5px}#cfg_editor form p{font-size:13px}#cfg_editor .probe-step{padding:12px}}
+/* Readability: larger small text and brighter secondary text in every tab. */
+body{font-size:15px}
+label{font-size:13.5px;color:var(--label)}
+p{color:var(--muted)}
+.note{font-size:13.5px}
+.section-description{font-size:13.5px}
+.eyebrow{font-size:11px;color:var(--faint)}
+.nav-caption{font-size:10.5px;color:var(--faint)}
+.tab-btn{font-size:14px;color:var(--muted)}
+.brand small{font-size:11px;color:var(--faint)}
+.metric span{font-size:13px}
+.metric small{font-size:11.5px;color:var(--faint)}
+.count-badge{font-size:13px}
+#cfg_status{font-size:13.5px}
+.cfg-port p{font-size:12.5px}
+.port-state{font-size:11.5px}
+.port-device{font-size:12px}
+table.ports,table.log{font-size:13.5px}
+table.ports th,table.log th{font-size:11.5px;color:var(--faint)}
+table.log td,table.ports td{color:var(--text)}
+tr.log-info td{color:var(--muted)}
+pre,.copybox input{font-size:13px}
+summary{font-size:14px}
+#tab_config details summary{color:var(--text)}
+#addon_version_label{font-size:12px!important}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+.header-tag{margin-right:108px}
+#theme_toggle_btn{position:absolute;top:26px;right:76px;width:38px;height:38px;margin:0;padding:4px;display:grid;place-items:center;font-size:18px;line-height:1;background:var(--panel);border:1px solid var(--line);border-radius:9px;color:var(--text);z-index:100;cursor:pointer}
+#theme_toggle_btn:hover{background:var(--hover)}
+:root[data-theme="light"] #cfg_editor::backdrop{background:#1a2433a6}
+:root[data-theme="light"] .cfg-actions,:root[data-theme="light"] .card{box-shadow:0 1px 3px #0f1b2b14}
+@media(max-width:720px){body{font-size:14.5px}label{font-size:13px}.tab-btn{font-size:13px}.metric span{font-size:12px}.metric small{font-size:11px}.cfg-actions button{font-size:12.5px}#theme_toggle_btn{top:20px;right:64px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 
 </style>
@@ -5019,7 +5068,8 @@ const USBManagerI18n = (() => {
     "Chưa khớp tất cả cụm: không nhận là thiết bị này.": "Not all steps match: this device would not be accepted.",
     "Cụm {n} cần phản hồi mong đợi.": "Step {n} needs an expected response.",
     "Cụm {n} cần phản hồi mong đợi hoặc bật kiểm tra CRC.": "Step {n} needs an expected response or the CRC check.",
-    "Bắt buộc điền": "Required"
+    "Bắt buộc điền": "Required",
+    "Đổi giao diện sáng/tối": "Switch light/dark theme"
   }
 };
   let language='vi';
@@ -5115,7 +5165,9 @@ function uiAlert(message){window.alert(str(message));}
 function uiConfirm(message){return window.confirm(str(message));}
 
 """
-_SPY_PAGE_HTML = _SPY_PAGE_HTML.replace("<script>", _CONFIG_UI_HTML + "<script>" + _I18N_UI_SCRIPT, 1).replace("</script>", _CONFIG_UI_SCRIPT + "</script>", 1)
+_SPY_PAGE_HTML = _SPY_PAGE_HTML.replace("<script>", _CONFIG_UI_HTML + "<script>" + _I18N_UI_SCRIPT, 1)
+_page_head, _page_close, _page_tail = _SPY_PAGE_HTML.rpartition("</script>")
+_SPY_PAGE_HTML = _page_head + _CONFIG_UI_SCRIPT + _page_close + _page_tail
 
 # Configuration owned by the Ingress UI; Supervisor options are imported once.
 UI_CONFIG_PATH = "/data/usb-manager-config.json"

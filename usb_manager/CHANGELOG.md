@@ -6,6 +6,13 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
+## 1.12.7
+
+- Light/dark theme button next to Settings (remembered per browser; first visit
+  follows the system setting).
+- Higher contrast and larger small text across all tabs; all text meets WCAG AA
+  contrast in both themes.
+
 ## 1.12.6
 
 - Port editor: larger, brighter labels and notes; still fits phone screens.
