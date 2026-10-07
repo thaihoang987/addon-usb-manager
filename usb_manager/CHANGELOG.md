@@ -6,6 +6,11 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
+## 1.12.8
+
+- Baud is now a list of common rates (300–921600) with **Other…** for a custom
+  value, in the port editor, Get Response and the Modbus tool.
+
 ## 1.12.7
 
 - Light/dark theme button next to Settings (remembered per browser; first visit

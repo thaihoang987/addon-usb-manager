@@ -2567,9 +2567,7 @@ document.documentElement.dataset.theme=t;})();
   <div>
     <label>Baud</label>
     <select id="baud" class="narrow">
-      <option>1200</option><option>2400</option><option>4800</option>
-      <option selected>9600</option><option>19200</option><option>38400</option>
-      <option>57600</option><option>115200</option>
+      <option>300</option><option>600</option><option>1200</option><option>2400</option><option>4800</option><option selected>9600</option><option>14400</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option><option>230400</option><option>250000</option><option>460800</option><option>921600</option>
     </select>
   </div>
   <div>
@@ -2646,9 +2644,7 @@ document.documentElement.dataset.theme=t;})();
     <div>
       <label>Baud</label>
       <select id="comm_baud" class="narrow">
-        <option>1200</option><option>2400</option><option>4800</option>
-        <option selected>9600</option><option>19200</option><option>38400</option>
-        <option>57600</option><option>115200</option>
+        <option>300</option><option>600</option><option>1200</option><option>2400</option><option>4800</option><option selected>9600</option><option>14400</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option><option>230400</option><option>250000</option><option>460800</option><option>921600</option>
       </select>
     </div>
   </div>
@@ -4194,6 +4190,7 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
  .probe-step .cfg-toolbar {position:static!important;margin:10px 0 0!important;padding:0!important;border:0!important;background:none!important}
  .probe-step .cfg-toolbar button {padding:7px 12px;font-size:12px;background:var(--btn)!important;color:var(--text)!important}
  .step-add {margin-top:12px;width:auto}
+ [data-field=baud] input {margin-top:8px}
  .req {color:var(--danger);font-weight:700;margin-left:3px}
  .req-legend {margin:4px 0 0}
  .req-legend .req {margin:0 3px 0 0}
@@ -4301,7 +4298,7 @@ _CONFIG_UI_SCRIPT = r"""
     visibility();
   }
 
-  const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','number',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6030)','number',6001,6030],['pty_symlink','Đường dẫn PTY','text'],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
+  const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','baud',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6030)','number',6001,6030],['pty_symlink','Đường dẫn PTY','text'],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
   const identity=[['match_mode','Cách so khớp',['contains','exact','startswith','fuzzy']],['modbus_crc_match','Kiểm tra CRC + địa chỉ + mã hàm Modbus','checkbox']];
   const stepFields=[['command','Lệnh gửi (trống = chỉ nghe)','text'],['unit_id','Địa chỉ Modbus','number',1,247],['function_code','Mã hàm Modbus','number',1,127],['start_address','Địa chỉ bắt đầu','number',0,65535],['quantity','Số lượng','number',1,2000],['value','Giá trị ghi (FC05/06)','number',0,65535],['expected_response','Phản hồi mong đợi (mỗi dòng một phản hồi thay thế)','textarea'],['wait_s','Chờ phản hồi (giây; trống = timeout dò)','number',.05,30]];
   // Fields that must be filled (expected_response: Raw, or Modbus without the CRC check).
@@ -4316,12 +4313,27 @@ _CONFIG_UI_SCRIPT = r"""
   }
   function status(message,error=false) {$('cfg_status').textContent=str(message);$('cfg_status').className=error?'err':'';}
   function markDirty() {dirty=true;status('Có thay đổi chưa lưu. Cổng bị sửa sẽ kết nối lại.');}
+  const commonBauds=[300,600,1200,2400,4800,9600,14400,19200,38400,57600,115200,230400,250000,460800,921600];
+  // Common baud rates in a list; "Other…" reveals a number field for unusual rates.
+  function baudField(wrapper,id,value,min,max) {
+    const select=document.createElement('select');select.id=id;
+    for(const b of commonBauds){const o=document.createElement('option');o.value=String(b);o.textContent=String(b);select.append(o);}
+    const other=document.createElement('option');other.value='custom';other.textContent=str('Khác…');select.append(other);
+    const custom=document.createElement('input');custom.type='number';custom.id=id+'_custom';custom.min=min;custom.max=max;custom.step='1';
+    custom.placeholder=str('Nhập baud');custom.setAttribute('aria-label',str('Baud khác'));
+    const known=commonBauds.includes(Number(value));
+    select.value=known?String(Number(value)):'custom';custom.value=known?'':(value??'');
+    const sync=()=>{custom.hidden=select.value!=='custom';};
+    select.onchange=()=>{sync();if(select.value==='custom')custom.focus();};sync();
+    wrapper.append(select,custom);
+  }
   function fields(container,defs,values,prefix) {
     $(container).replaceChildren();
     for(const [key,label,type,min,max] of defs) {
       const wrapper=document.createElement('div');wrapper.dataset.field=key;
       const caption=document.createElement('label');caption.textContent=str(label);caption.htmlFor=prefix+key;
       if(requiredFields.includes(key)){const mark=document.createElement('span');mark.className='req';mark.textContent='*';mark.setAttribute('aria-hidden','true');caption.append(mark);}
+      if(type==='baud'){wrapper.append(caption);baudField(wrapper,prefix+key,values[key],min,max);$(container).append(wrapper);continue;}
       const input=document.createElement(Array.isArray(type)?'select':type==='textarea'?'textarea':'input');
       input.id=prefix+key;input.dataset.key=key;
       if(Array.isArray(type)) for(const v of type){const o=document.createElement('option');o.value=v;o.textContent=str(({raw:'Raw UART',modbus_rtu:'Modbus RTU',tcp:'TCP',pty:'PTY',contains:'Chứa chuỗi',exact:'Giống toàn bộ',startswith:'Bắt đầu bằng',fuzzy:'Gần giống'})[v]||v);input.append(o);}
@@ -4340,6 +4352,7 @@ _CONFIG_UI_SCRIPT = r"""
     for(const [key,label,type] of defs) {
       const input=$(prefix+key);
       if(type==='checkbox')result[key]=input.checked;
+      else if(type==='baud'){const v=input.value==='custom'?$(prefix+key+'_custom').value:input.value;if(v!=='')result[key]=Number(v);}
       else if(type==='number'){if(input.value!=='')result[key]=Number(input.value);}
       else result[key]=input.value;
     }
@@ -4615,6 +4628,7 @@ _CONFIG_UI_SCRIPT = r"""
   $('cfg_form').onsubmit=e=>{
     e.preventDefault();const p=readPort();
     if(!/^[A-Za-z0-9_-]{1,64}$/.test(p.name)){$('cfg_editor_error').textContent='ID port cần 1–64 chữ không dấu, số, dấu - hoặc _.';return;}
+    if(!Number.isInteger(p.baud)||p.baud<300||p.baud>4000000){$('cfg_editor_error').textContent=str('Baud cần là số nguyên 300–4000000.');return;}
     if(state.options.ports.some((other,i)=>i!==editIndex&&other.name===p.name)){$('cfg_editor_error').textContent='ID port đã tồn tại.';return;}
     const missing=p.probe_steps.findIndex(s=>!s.expected_response.trim());
     if(p.enabled&&missing>=0&&p.protocol==='raw'){$('cfg_editor_error').textContent=str('Cụm {n} cần phản hồi mong đợi.',{n:missing+1});return;}
@@ -5069,7 +5083,11 @@ const USBManagerI18n = (() => {
     "Cụm {n} cần phản hồi mong đợi.": "Step {n} needs an expected response.",
     "Cụm {n} cần phản hồi mong đợi hoặc bật kiểm tra CRC.": "Step {n} needs an expected response or the CRC check.",
     "Bắt buộc điền": "Required",
-    "Đổi giao diện sáng/tối": "Switch light/dark theme"
+    "Đổi giao diện sáng/tối": "Switch light/dark theme",
+    "Khác…": "Other…",
+    "Nhập baud": "Enter baud rate",
+    "Baud khác": "Custom baud rate",
+    "Baud cần là số nguyên 300–4000000.": "Baud must be a whole number from 300 to 4000000."
   }
 };
   let language='vi';
