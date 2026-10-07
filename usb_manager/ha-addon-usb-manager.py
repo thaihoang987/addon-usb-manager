@@ -4177,7 +4177,7 @@ _CONFIG_UI_SCRIPT = r"""
     pty:{label:'UART → PTY',note:'Nhập đường dẫn PTY và phản hồi nhận diện.',options:{protocol:'raw',baud:9600,output_mode:'pty',pty_symlink:'/dev/usb-manager-device'}}
   };
   function templateDraft(key){
-    const next=6001+Array.from({length:10},(_,i)=>i).find(i=>!state.options.ports.some(p=>p.output_mode==='tcp'&&p.tcp_port===6001+i));
+    const next=6001+Array.from({length:30},(_,i)=>i).find(i=>!state.options.ports.some(p=>p.output_mode==='tcp'&&p.tcp_port===6001+i));
     return {...portDefaults,...templates[key].options,tcp_port:Number.isFinite(next)?next:6001};
   }
   function fillEditor(value){
@@ -4187,7 +4187,7 @@ _CONFIG_UI_SCRIPT = r"""
     visibility();
   }
 
-  const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','number',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6010)','number',6001,6010],['pty_symlink','Đường dẫn PTY','text'],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
+  const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','number',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6030)','number',6001,6030],['pty_symlink','Đường dẫn PTY','text'],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
   const identity=[['send_command','Lệnh nhận diện (Raw)','text'],['unit_id','Địa chỉ Modbus','number',1,247],['function_code','Mã hàm Modbus','number',1,127],['start_address','Địa chỉ bắt đầu','number',0,65535],['quantity','Số lượng','number',1,2000],['value','Giá trị ghi (FC05/06)','number',0,65535],['expected_response','Phản hồi nhận diện 1','textarea'],['expected_response_2','Phản hồi nhận diện 2 (tùy chọn)','textarea'],['match_mode','Cách so khớp',['contains','exact','startswith','fuzzy']],['modbus_crc_match','Kiểm tra CRC + địa chỉ + mã hàm Modbus','checkbox']];
   const advanced=[['send_command_2','Lệnh dự phòng','text'],['fuzzy_threshold','Ngưỡng fuzzy (%)','number',1,100],['probe_timeout_s','Timeout dò (giây; trống = mặc định)','number',.05,30],['rescan_interval_s','Chu kỳ dò lại (giây; trống = mặc định)','number',1,3600],['modbus_response_timeout_s','Timeout phản hồi Modbus TCP (giây)','number',.1,30],['on_connect_send','Dữ liệu chào client TCP (tùy chọn)','text']];
   const globals=[['loglevel','Mức log',['error','warning','info','debug']],['scan_glob','Mẫu quét USB','text'],['exclude_usb','USB loại trừ (mỗi dòng một đường dẫn)','textarea'],['settle_delay_s','Chờ USB khi khởi động (giây)','number',0,120],['default_probe_timeout_s','Timeout dò mặc định (giây)','number',.05,30],['default_rescan_interval_s','Chu kỳ dò mặc định (giây)','number',1,3600],['passive_listen_s','Thời gian nghe trước khi gửi (giây)','number',0,30],['mqtt_host','MQTT host (trống = tự động)','text'],['mqtt_port','MQTT port','number',1,65535],['mqtt_username','MQTT username','text'],['mqtt_password','Mật khẩu MQTT mới','password']];
@@ -4547,7 +4547,7 @@ const USBManagerI18n = (() => {
     "Cần truy cập qua HTTPS (hoặc localhost) - trang hiện KHÔNG ở secure context.": "Use HTTPS or localhost for browser USB access.",
     "Cần ít nhất một phản hồi nhận diện cho Raw.": "Raw mode needs a device response to match.",
     "Cổng & kết nối": "Port & connection",
-    "Cổng TCP (6001–6010)": "TCP port (6001–6010)",
+    "Cổng TCP (6001–6030)": "TCP port (6001–6030)",
     "Cổng USB": "USB device",
     "Cổng của bạn": "Your ports",
     "Cổng kết nối": "Connection",
@@ -5063,7 +5063,7 @@ def validate_ui_config(payload):
             if key in port:
                 _number(port, key, low, high, integer)
         if port["output_mode"] == "tcp":
-            _number(port, "tcp_port", 6001, 6010, True)
+            _number(port, "tcp_port", 6001, 6030, True)
             if port["tcp_port"] in tcp_ports:
                 raise ValueError(f"Trùng TCP :{port['tcp_port']}")
             tcp_ports.add(port["tcp_port"])

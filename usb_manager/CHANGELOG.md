@@ -16,6 +16,7 @@
   Existing Modbus ports without a response keep CRC identification.
 - Port cards show the USB device each port currently matches.
 - Checking a rule no longer requires the port ID to be filled in first.
+- Raise the TCP port range from 6001–6010 to 6001–6030 (up to 30 TCP ports).
 
 ## 1.12.2
 

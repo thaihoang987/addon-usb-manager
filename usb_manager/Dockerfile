@@ -6,5 +6,5 @@ WORKDIR /app
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 COPY ha-addon-usb-manager.py config.yaml ./
-EXPOSE 6001-6010
+EXPOSE 6001-6030
 CMD ["python3", "ha-addon-usb-manager.py"]

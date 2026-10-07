@@ -29,7 +29,7 @@ also provide an Add-on Store. Container/Core cannot install this package as an a
 2. Add `https://github.com/thaihoang987/addon-usb-manager`.
 3. Find **USB Manager**, click **Install**, then **Start** and **Open Web UI**.
 4. Enable **Start on boot** and **Show in sidebar** if desired.
-5. Review **Network** to expose the TCP ports your clients need (6001–6010).
+5. Review **Network** to expose the TCP ports your clients need (6001–6030).
 
 The initial release can build locally during installation. Later releases use
 prebuilt AMD64/ARM64 images when the release workflow has finished.

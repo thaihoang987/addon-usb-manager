@@ -10,7 +10,7 @@
 
 Open **Configuration (Cấu hình)** and add a port. The ID is permanent and uses
 letters, numbers, `_` or `-`; change the display name to rename an existing port.
-Choose its baud rate, device protocol and TCP port (6001–6010).
+Choose its baud rate, device protocol and TCP port (6001–6030).
 
 - **Raw:** enter `text:GET_ID$` or another device-specific command and a matching
   response such as `text:DEVICE_A`. Leave the command empty for passive listening.
