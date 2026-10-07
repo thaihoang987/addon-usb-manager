@@ -40,7 +40,7 @@ def main():
     changelog = CHANGELOG.read_text(encoding='utf-8')
     if not re.search(rf'^## {re.escape(version)}\s*$', changelog, re.M):
         commit = git('rev-parse', 'HEAD')
-        entry = f'## {version}\n\n- Maintenance update.\n- Source: [{commit[:7]}](https://github.com/thaihoang987/addon-usb-manager/commit/{commit}).\n\n'
+        entry = f'## {version}\n\n- Maintenance update.\n- Source: [{commit[:7]}](https://github.com/thaihoang987/app-usb-manager/commit/{commit}).\n\n'
         first_entry = re.search(r'^## ', changelog, re.M)
         if first_entry:
             changelog = changelog[:first_entry.start()] + entry + changelog[first_entry.start():]
