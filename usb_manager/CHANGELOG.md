@@ -6,6 +6,11 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
+## 1.12.5
+
+- Port editor: required fields are marked with a red * (the expected response
+  is required for Raw, and for Modbus unless the CRC check is on).
+
 ## 1.12.4
 
 - Identification steps: each step pairs one command with its own expected

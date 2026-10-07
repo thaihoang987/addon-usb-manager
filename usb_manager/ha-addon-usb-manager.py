@@ -4121,6 +4121,7 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
       <h2 id="cfg_editor_title">Thêm port</h2>
       <div id="cfg_template_box"><label for="cfg_template">Tạo từ mẫu</label><select id="cfg_template"></select><p id="cfg_template_note"></p></div>
       <p>ID giữ cố định. Bạn có thể đổi tên hiển thị.</p>
+      <p class="req-legend"><span class="req" aria-hidden="true">*</span> Bắt buộc điền</p>
       <h3 class="step-heading"><span>01</span> Cổng &amp; kết nối</h3><div id="cfg_basic" class="cfg-grid"></div>
       <h3 class="step-heading"><span>02</span> Nhận diện thiết bị</h3>
       <p>Mỗi cụm gửi một lệnh rồi chờ phản hồi của chính lệnh đó. Tất cả cụm khớp mới là đúng thiết bị. Lệnh và phản hồi dùng <code>hex:0104</code> hoặc <code>text:GET_ID$</code>.</p>
@@ -4176,6 +4177,9 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
  .probe-step .cfg-toolbar {position:static!important;margin:10px 0 0!important;padding:0!important;border:0!important;background:none!important}
  .probe-step .cfg-toolbar button {padding:7px 12px;font-size:12px;background:#25364d!important;color:var(--text)!important}
  .step-add {margin-top:12px;width:auto}
+ .req {color:#ff8a8a;font-weight:700;margin-left:3px}
+ .req-legend {margin:4px 0 0}
+ .req-legend .req {margin:0 3px 0 0}
  .port-device {font-size:11px;color:var(--muted)}
  #cfg_ports .cfg-disabled {opacity:.65}
  .tab-bar {flex-wrap:wrap;padding-right:46px}
@@ -4235,13 +4239,15 @@ _CONFIG_UI_SCRIPT = r"""
     fields('cfg_basic',basic,value,'cp_');fields('cfg_identity',identity,value,'cp_');fields('cfg_advanced',advanced,value,'cp_');
     renderSteps(clone(portSteps(value)));
     $('cp_name').readOnly=editIndex>=0;
-    for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode'])$('cp_'+key).onchange=visibility;
+    for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode','modbus_crc_match'])$('cp_'+key).onchange=visibility;
     visibility();
   }
 
   const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','number',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6030)','number',6001,6030],['pty_symlink','Đường dẫn PTY','text'],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
   const identity=[['match_mode','Cách so khớp',['contains','exact','startswith','fuzzy']],['modbus_crc_match','Kiểm tra CRC + địa chỉ + mã hàm Modbus','checkbox']];
   const stepFields=[['command','Lệnh gửi (trống = chỉ nghe)','text'],['unit_id','Địa chỉ Modbus','number',1,247],['function_code','Mã hàm Modbus','number',1,127],['start_address','Địa chỉ bắt đầu','number',0,65535],['quantity','Số lượng','number',1,2000],['value','Giá trị ghi (FC05/06)','number',0,65535],['expected_response','Phản hồi mong đợi (mỗi dòng một phản hồi thay thế)','textarea'],['wait_s','Chờ phản hồi (giây; trống = timeout dò)','number',.05,30]];
+  // Fields that must be filled (expected_response: Raw, or Modbus without the CRC check).
+  const requiredFields=['name','baud','tcp_port','pty_symlink','unit_id','function_code','start_address','quantity','expected_response'];
   const advanced=[['fuzzy_threshold','Ngưỡng fuzzy (%)','number',1,100],['probe_timeout_s','Timeout dò (giây; trống = mặc định)','number',.05,30],['rescan_interval_s','Chu kỳ dò lại (giây; trống = mặc định)','number',1,3600],['modbus_response_timeout_s','Timeout phản hồi Modbus TCP (giây)','number',.1,30],['on_connect_send','Dữ liệu chào client TCP (tùy chọn)','text']];
   const globals=[['loglevel','Mức log',['error','warning','info','debug']],['scan_glob','Mẫu quét USB','text'],['exclude_usb','USB loại trừ (mỗi dòng một đường dẫn)','textarea'],['settle_delay_s','Chờ USB khi khởi động (giây)','number',0,120],['default_probe_timeout_s','Timeout dò mặc định (giây)','number',.05,30],['default_rescan_interval_s','Chu kỳ dò mặc định (giây)','number',1,3600],['passive_listen_s','Thời gian nghe trước khi gửi (giây)','number',0,30],['mqtt_host','MQTT host (trống = tự động)','text'],['mqtt_port','MQTT port','number',1,65535],['mqtt_username','MQTT username','text'],['mqtt_password','Mật khẩu MQTT mới','password']];
   async function api(path,body) {
@@ -4257,6 +4263,7 @@ _CONFIG_UI_SCRIPT = r"""
     for(const [key,label,type,min,max] of defs) {
       const wrapper=document.createElement('div');wrapper.dataset.field=key;
       const caption=document.createElement('label');caption.textContent=str(label);caption.htmlFor=prefix+key;
+      if(requiredFields.includes(key)){const mark=document.createElement('span');mark.className='req';mark.textContent='*';mark.setAttribute('aria-hidden','true');caption.append(mark);}
       const input=document.createElement(Array.isArray(type)?'select':type==='textarea'?'textarea':'input');
       input.id=prefix+key;input.dataset.key=key;
       if(Array.isArray(type)) for(const v of type){const o=document.createElement('option');o.value=v;o.textContent=str(({raw:'Raw UART',modbus_rtu:'Modbus RTU',tcp:'TCP',pty:'PTY',contains:'Chứa chuỗi',exact:'Giống toàn bộ',startswith:'Bắt đầu bằng',fuzzy:'Gần giống'})[v]||v);input.append(o);}
@@ -4294,6 +4301,8 @@ _CONFIG_UI_SCRIPT = r"""
     $('cp_modbus_response_timeout_s').parentElement.hidden=!modbus||!tcp||!$('cp_mbap_rtu_bridge').checked;
     $('cp_fuzzy_threshold').parentElement.hidden=$('cp_match_mode').value!=='fuzzy';
     $('cp_modbus_crc_match').parentElement.hidden=!modbus;
+    const responseRequired=!modbus||!$('cp_modbus_crc_match').checked;
+    for(const el of $('cfg_steps').querySelectorAll('[data-field=expected_response] .req'))el.hidden=!responseRequired;
   }
   function readPort() {
     const result=read([...basic,...identity,...advanced],'cp_');
@@ -4314,7 +4323,7 @@ _CONFIG_UI_SCRIPT = r"""
     $('cfg_editor_title').textContent=index<0?str('Thêm port'):str('Sửa port {name}',{name:value.name});
     $('cfg_editor_error').textContent='';$('cfg_check_result').textContent='';$('cfg_response').value='';
     $('cfg_capture_result').replaceChildren();captureDevices();
-    for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode'])$('cp_'+key).onchange=visibility;
+    for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode','modbus_crc_match'])$('cp_'+key).onchange=visibility;
     visibility();$('cfg_editor').showModal();
   }
   function renderPorts() {
@@ -5000,7 +5009,8 @@ const USBManagerI18n = (() => {
     "Tất cả cụm khớp: đúng thiết bị.": "All steps match: this is the device.",
     "Chưa khớp tất cả cụm: không nhận là thiết bị này.": "Not all steps match: this device would not be accepted.",
     "Cụm {n} cần phản hồi mong đợi.": "Step {n} needs an expected response.",
-    "Cụm {n} cần phản hồi mong đợi hoặc bật kiểm tra CRC.": "Step {n} needs an expected response or the CRC check."
+    "Cụm {n} cần phản hồi mong đợi hoặc bật kiểm tra CRC.": "Step {n} needs an expected response or the CRC check.",
+    "Bắt buộc điền": "Required"
   }
 };
   let language='vi';
