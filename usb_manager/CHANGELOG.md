@@ -6,6 +6,19 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
+## 1.12.4
+
+- Identification steps: each step pairs one command with its own expected
+  response and wait time. Start with one step and add more with **+ Add step**
+  (up to 10); a device matches only when every step matches, in order.
+- Modbus steps carry their own unit ID, function code, address and quantity; the
+  CRC check applies to each step.
+- Per-step **Send & capture response** and **Test all steps** in the port editor.
+- Logs report which step matched and which failed for each USB device, once per
+  change of result.
+- Existing ports convert automatically to one step (response 2 becomes an
+  alternative line). The fallback command 2 is removed.
+
 ## 1.12.3
 
 - Port editor: pick a connected USB device and **Send & capture response** to fill

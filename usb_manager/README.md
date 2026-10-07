@@ -38,11 +38,14 @@ prebuilt AMD64/ARM64 images when the release workflow has finished.
 
 1. Open **Configuration (Cấu hình)** → **Add port (Thêm port)**.
 2. Set a unique ID, display name, baud rate, Raw/Modbus protocol and TCP port.
-3. Enter a probe command and a distinctive expected response. Use `text:` for
-   text or `hex:` for bytes. For Modbus, enter the unit ID and read parameters.
-4. Under **Capture a response from a connected USB device**, pick a plugged-in
-   USB device and click **Send & capture response**, then **Use as response
-   signature 1** (Modbus: **Keep the fixed part only** if register values change).
+3. In **Step 1**, enter a probe command and a distinctive expected response. Use
+   `text:` for text or `hex:` for bytes. For Modbus, enter the unit ID and read
+   parameters. Click **+ Add step** to require more command/response pairs; the
+   device must match every step.
+4. Under **Test with a connected USB device**, pick a plugged-in USB device, click
+   **Send & capture response** on a step, then **Use as expected response**
+   (Modbus: **Keep the fixed part only** if register values change). **Test all
+   steps** checks the whole sequence.
 5. Click **Keep port changes (Giữ thay đổi port)**, then **Save and apply (Lưu và áp dụng)**.
 6. Connect Node-RED or another client to `HOME_ASSISTANT_IP:TCP_PORT`.
 
