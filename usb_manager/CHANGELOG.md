@@ -6,10 +6,15 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
+## 1.12.9
+
+- README: screenshot, why the app exists, how it works and what it is for.
+- Repository links point to `app-usb-manager`.
+
 ## 1.12.8
 
-- Baud is now a list of common rates (300–921600) with **Other…** for a custom
-  value, in the port editor, Get Response and the Modbus tool.
+- Baud is now a list of common rates (300–921600) in the port editor, Get Response
+  and the Modbus tool; the port editor also has **Other…** for a custom value.
 
 ## 1.12.7
 
