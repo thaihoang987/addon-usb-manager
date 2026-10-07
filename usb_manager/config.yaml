@@ -1,6 +1,6 @@
 name: "USB Manager"
 description: "Support: https://buymeacoffee.com/leon_bell | https://ko-fi.com/leonbell | https://paypal.me/leonbell95. Identify USB devices by their responses and expose stable TCP ports. Configure everything in the Web UI."
-version: "1.12.2"
+version: "1.12.3"
 url: "https://github.com/thaihoang987/addon-usb-manager"
 slug: "usb_manager"
 init: false
@@ -27,6 +27,26 @@ ports:
   6008/tcp: 6008
   6009/tcp: 6009
   6010/tcp: 6010
+  6011/tcp: 6011
+  6012/tcp: 6012
+  6013/tcp: 6013
+  6014/tcp: 6014
+  6015/tcp: 6015
+  6016/tcp: 6016
+  6017/tcp: 6017
+  6018/tcp: 6018
+  6019/tcp: 6019
+  6020/tcp: 6020
+  6021/tcp: 6021
+  6022/tcp: 6022
+  6023/tcp: 6023
+  6024/tcp: 6024
+  6025/tcp: 6025
+  6026/tcp: 6026
+  6027/tcp: 6027
+  6028/tcp: 6028
+  6029/tcp: 6029
+  6030/tcp: 6030
 options: {}
 schema: false
 image: "ghcr.io/thaihoang987/addon-usb-manager"

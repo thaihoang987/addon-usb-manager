@@ -10,7 +10,7 @@
 
 Open **Configuration (Cấu hình)** and add a port. The ID is permanent and uses
 letters, numbers, `_` or `-`; change the display name to rename an existing port.
-Choose its baud rate, device protocol and TCP port (6001–6010).
+Choose its baud rate, device protocol and TCP port (6001–6030).
 
 - **Raw:** enter `text:GET_ID$` or another device-specific command and a matching
   response such as `text:DEVICE_A`. Leave the command empty for passive listening.
@@ -18,16 +18,23 @@ Choose its baud rate, device protocol and TCP port (6001–6010).
   Read functions FC01–04 are useful probes. CRC is generated automatically.
   A write function changes the device every time the port is probed.
 - **Expected response:** use `text:` or `hex:`. The two response fields are
-  alternatives (OR). With both empty, Modbus identification checks CRC, unit ID
-  and function code. Raw ports need an expected response before enabling.
+  alternatives (OR). Raw ports need an expected response before enabling.
+- **Check Modbus CRC + unit ID + function code:** Modbus option. On its own it
+  accepts any valid reply from that unit/function; together with an expected
+  response, the reply must match both. A Modbus port needs at least one of them.
+  Ports saved before this option keep CRC checking when no response was entered.
 - **Matching:** Contains works for a reply inside a larger capture; Exact checks
   the entire buffer; Starts with checks the beginning; Fuzzy uses a similarity threshold.
 - **Output:** Raw TCP preserves bytes. Enable Modbus TCP ↔ RTU only when clients
   send standard Modbus TCP frames. Advanced PTY output needs access to the generated
   serial path; use TCP for other containers.
 
-Use **Get Response** to capture a real device reply. Paste it into **Check rule
-against a captured response** in the port editor; that check sends nothing to USB.
+In the port editor, **Capture a response from a connected USB device** sends the
+command above to a selected USB device (devices held by other ports are disabled;
+the port's own device is shared safely) and fills the reply into the response
+field. The result is checked against the current rule immediately. You can also
+paste a reply into **Check rule against a captured response**; that check sends
+nothing to USB. Each port card shows the USB device it currently matches.
 Test each physical device to ensure the rule uniquely identifies it.
 
 **Keep port changes** updates the draft. **Save and apply** validates and saves

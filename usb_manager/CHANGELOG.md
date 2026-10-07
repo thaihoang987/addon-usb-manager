@@ -6,12 +6,19 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
+## 1.12.3
+
+- Port editor: pick a connected USB device and **Send & capture response** to fill
+  the response signature from the real reply, with an immediate match check.
+  Devices held by other ports are disabled; the edited port's own device is shared.
+- Modbus: new **Check CRC + unit ID + function code** option. A Modbus port now
+  needs a response signature, the CRC check, or both (both must then match).
+  Existing Modbus ports without a response keep CRC identification.
+- Port cards show the USB device each port currently matches.
+- Checking a rule no longer requires the port ID to be filled in first.
+- Raise the TCP port range from 6001–6010 to 6001–6030 (up to 30 TCP ports).
+
 ## 1.12.2
-
-- Maintenance update.
-- Source: [4593915](https://github.com/thaihoang987/addon-usb-manager/commit/4593915d61297141e22306ed56699dbe4e3670c6).
-
-## Unreleased
 
 - Add ready-to-edit UART, Modbus and PTY templates, Vietnamese/English settings and Home Assistant time synchronization.
 - Shorten interface instructions.
