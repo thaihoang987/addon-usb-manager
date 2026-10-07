@@ -189,11 +189,54 @@ def build_modbus_request(unit_id: int, function_code: int, start_address: int,
     return body + modbus_crc16(body)
 
 
+# Nhan dien theo "cum": moi cum = 1 lenh gui + phan hoi mong doi cua CHINH
+# lenh do + thoi gian cho phan hoi. Port chi duoc coi la dung thiet bi khi
+# TAT CA cum deu khop. Cau hinh cu (send_command/expected_response/_2, cac
+# truong Modbus o cap port) duoc tu chuyen thanh 1 cum.
+LEGACY_PROBE_KEYS = ("send_command", "send_command_2", "expected_response", "expected_response_2",
+                     "unit_id", "function_code", "start_address", "quantity", "value")
+STEP_DEFAULTS = {"command": "", "unit_id": 1, "function_code": 3, "start_address": 0,
+                 "quantity": 1, "value": 0, "expected_response": "", "wait_s": None}
+MAX_PROBE_STEPS = 10
+
+
+def legacy_probe_steps(cfg: dict) -> list:
+    """Chuyen cau hinh truoc khi co cum thanh 1 cum. Phan hoi 2 (truoc day la
+    phan hoi thay the) thanh 1 dong thay the trong cung cum. Lenh du phong
+    send_command_2 khong con: cum moi bat buoc TAT CA phai khop."""
+    responses = [r for r in (cfg.get("expected_response"), cfg.get("expected_response_2")) if r]
+    step = {**STEP_DEFAULTS, "command": cfg.get("send_command") or "",
+            "expected_response": "\n".join(responses)}
+    for key in ("unit_id", "function_code", "start_address", "quantity", "value"):
+        if cfg.get(key) is not None:
+            step[key] = cfg[key]
+    return [step]
+
+
+def normalize_probe_port(cfg: dict) -> dict:
+    """Tra ve ban sao port co 'probe_steps' va KHONG con cac key nhan dien cu."""
+    port = dict(cfg)
+    steps = port.get("probe_steps")
+    if not isinstance(steps, list) or not steps:
+        steps = legacy_probe_steps(port) if any(port.get(k) for k in LEGACY_PROBE_KEYS[:4]) or port.get("protocol") == "modbus_rtu" else []
+    port["probe_steps"] = [{**STEP_DEFAULTS, **s} if isinstance(s, dict) else s for s in steps]
+    for key in LEGACY_PROBE_KEYS:
+        port.pop(key, None)
+    return port
+
+
+def step_responses(step: dict) -> list:
+    """Moi dong cua expected_response la 1 phan hoi thay the (khop 1 dong la dat)."""
+    return [line.strip() for line in (step.get("expected_response") or "").splitlines() if line.strip()]
+
+
 def default_modbus_crc_match(cfg: dict) -> bool:
     """Port cu (truoc khi co modbus_crc_match): modbus_rtu KHONG dien phan hoi
     nhan dien nao thi van nhan dien bang CRC + unit_id + function_code nhu cu."""
-    return (cfg.get("protocol") == "modbus_rtu"
-            and not cfg.get("expected_response") and not cfg.get("expected_response_2"))
+    if cfg.get("protocol") != "modbus_rtu":
+        return False
+    steps = normalize_probe_port(cfg)["probe_steps"]
+    return not any(step_responses(s) for s in steps if isinstance(s, dict))
 
 
 def check_modbus_response(unit_id: int, function_code: int, response: bytes) -> bool:
@@ -413,52 +456,24 @@ class VirtualPort:
         self.probe_timeout_s = cfg.get("probe_timeout_s", defaults["probe_timeout_s"])
         self.rescan_interval_s = cfg.get("rescan_interval_s", defaults["rescan_interval_s"])
 
-        if self.protocol == "modbus_rtu":
-            self.unit_id = cfg.get("unit_id")
-            self.function_code = cfg.get("function_code")
-            self.start_address = cfg.get("start_address", 0)
-            self.quantity = cfg.get("quantity", 1)
-            self.value = cfg.get("value")  # chi dung cho FC ghi (0x05/0x06)
-
-        # send_command / send_command_2, expected_response / expected_response_2:
-        # AP DUNG CHUNG cho ca 2 protocol (raw va modbus_rtu), TUY CHON - o
-        # nao de trong thi bo qua, khong xet toi.
-        #
-        # Neu co it nhat 1 trong 2 expected_response(_2) duoc dien: chuyen
-        # sang so khop LITERAL BYTE (giong het "raw") cho CA modbus_rtu -
-        # KHONG con dung CRC/unit_id/function_code de xac dinh khop nua. Ly
-        # do: (1) response cua cung 1 thiet bi co the KHAC NHAU giua cac thoi
-        # diem (vd ban ngay Growatt hoi dia chi khac ban dem add-on tu hoi) -
-        # dien 2 chu ky da quan sat duoc (1 cho ban ngay, 1 cho ban dem) an
-        # toan hon suy doan CRC chung chung; (2) tranh nham thiet bi giua 2
-        # bus RS-485 KHAC NHAU nhung tinh co cung unit_id (rat de xay ra vi
-        # unit_id=1 la mac dinh pho bien) - so khop chu ky byte that cu the
-        # hon nhieu so voi chi kiem CRC+unit_id.
-        #
-        # Neu CA HAI deu de trong VA protocol=modbus_rtu: dung lai logic CRC/
-        # unit_id/function_code cu (backward-compat cho port da cau hinh tu
-        # truoc, vd "modbusspy").
-        #
-        # Luong do (ca active lan passive) thu theo thu tu:
-        #   1. Nghe passive (khong gui gi) -> so khop voi response 1 HOAC 2.
-        #   2. Khong khop -> gui command 1 (rieng modbus_rtu: command 1 LUON
-        #      la khung tu dong build tu unit_id/function_code/address/
-        #      quantity/value nhu cu, "send_command" chi ap dung cho raw) ->
-        #      so khop voi response 1 HOAC 2.
-        #   3. Van khong khop VA co command_2 duoc dien -> gui command_2 ->
-        #      so khop voi response 1 HOAC 2.
-        self.send_command = cfg.get("send_command")
-        self.send_command_2 = cfg.get("send_command_2")
-        self.expected_response = cfg.get("expected_response")
-        self.expected_response_2 = cfg.get("expected_response_2")
-        # modbus_crc_match: chi ap dung cho modbus_rtu. True = phan hoi phai la
-        # khung Modbus hop le (CRC + unit_id + function_code). Neu CO dien
-        # expected_response(_2) thi phai khop CA HAI (phan hoi nguoi dung dien
-        # VA CRC). Thieu key (config cu) -> suy ra theo default_modbus_crc_match.
+        # probe_steps: danh sach "cum" nhan dien (xem LEGACY_PROBE_KEYS o tren).
+        # Moi cum: gui lenh cua cum (raw: "command", bo trong = chi nghe;
+        # modbus_rtu: khung tu build tu unit_id/function_code/start_address/
+        # quantity/value cua cum) -> cho wait_s giay -> so khop voi phan hoi
+        # CUA CHINH cum do (moi dong expected_response la 1 phan hoi thay the).
+        # Port chi dung khi TAT CA cum khop, thu theo dung thu tu.
+        self.probe_steps = normalize_probe_port(cfg)["probe_steps"]
+        # modbus_crc_match: chi ap dung cho modbus_rtu. True = phan hoi cua
+        # MOI cum phai la khung Modbus hop le (CRC + unit_id + function_code
+        # cua cum do). Neu cum CO dien phan hoi thi phai khop CA HAI. Thieu key
+        # (config cu) -> suy ra theo default_modbus_crc_match.
         crc_match = cfg.get("modbus_crc_match")
         if crc_match is None:
             crc_match = default_modbus_crc_match(cfg)
         self.modbus_crc_match = bool(crc_match) and self.protocol == "modbus_rtu"
+        # last_probe_report: ket qua tung cum lan do gan nhat theo tung USB -
+        # chi ghi log INFO khi ket qua THAY DOI, tranh spam moi chu ky rescan.
+        self.last_probe_report: dict = {}
 
         self.device_path = None
         self.stop_event = threading.Event()
@@ -511,13 +526,15 @@ class VirtualPort:
         self.test_hold_device = None
         self.test_hold_since = 0.0
 
-        if self.protocol == "modbus_rtu" and self.function_code in (5, 6, 15, 16):
-            logging.warning(
-                "[%s] function_code=%s la lenh GHI - MOI lan do port (khoi dong, "
-                "mat ket noi, Rescan) add-on se GHI xuong thiet bi that (vd dong/"
-                "cat relay)! Nen dung lenh DOC (FC 1/2/3/4) de do.",
-                self.name, self.function_code,
-            )
+        if self.protocol == "modbus_rtu":
+            for idx, step in enumerate(self.probe_steps, 1):
+                if step.get("function_code") in (5, 6, 15, 16):
+                    logging.warning(
+                        "[%s] cum %d dung function_code=%s la lenh GHI - MOI lan do port "
+                        "(khoi dong, mat ket noi, Rescan) add-on se GHI xuong thiet bi that "
+                        "(vd dong/cat relay)! Nen dung lenh DOC (FC 1/2/3/4) de do.",
+                        self.name, idx, step.get("function_code"),
+                    )
 
         # Kiem tra som ngay luc khoi tao: build thu tat ca lenh test + decode
         # thu tat ca response mong doi 1 lan - bat loi cau hinh (hex sai,
@@ -527,10 +544,9 @@ class VirtualPort:
         if self.enabled:
             try:
                 self.build_probe_frames()
-                if self.expected_response:
-                    decode_command(self.expected_response)
-                if self.expected_response_2:
-                    decode_command(self.expected_response_2)
+                for step in self.probe_steps:
+                    for response in step_responses(step):
+                        decode_command(response)
             except Exception as exc:  # noqa: BLE001 - muon bien no thanh ValueError ro rang
                 raise ValueError(
                     f"[{self.name}] cau hinh lenh test khong hop le: {exc}"
@@ -543,66 +559,58 @@ class VirtualPort:
             for buf in self.taps:
                 buf.extend(data)
 
-    def has_literal_response(self) -> bool:
-        return bool(self.expected_response) or bool(self.expected_response_2)
+    def step_frame(self, step: dict) -> bytes:
+        """Khung gui cua 1 cum; b"" = cum chi nghe (raw khong co lenh)."""
+        if self.protocol == "modbus_rtu":
+            value = step.get("value")
+            return build_modbus_request(
+                int(step["unit_id"]), int(step["function_code"]),
+                int(step.get("start_address") or 0), int(step.get("quantity") or 1),
+                int(value) if value not in (None, "") else None,
+            )
+        return decode_command(step.get("command") or "")
 
     def build_probe_frames(self) -> list:
-        """Tra ve danh sach 0, 1 hoac 2 khung lenh se thu gui theo thu tu."""
-        frames = []
-        if self.protocol == "modbus_rtu":
-            frames.append(build_modbus_request(
-                self.unit_id, self.function_code, self.start_address,
-                self.quantity, self.value,
-            ))
-        elif self.send_command:
-            frames.append(decode_command(self.send_command))
-        if self.send_command_2:
-            frames.append(decode_command(self.send_command_2))
-        return frames
+        """Khung gui cua tung cum theo thu tu (b"" = cum chi nghe)."""
+        return [self.step_frame(step) for step in self.probe_steps]
 
-    def _check_literal(self, data: bytes) -> bool:
-        if self.expected_response and response_matches(
-            self.expected_response, data, self.match_mode, self.fuzzy_threshold
-        ):
-            return True
-        if self.expected_response_2 and response_matches(
-            self.expected_response_2, data, self.match_mode, self.fuzzy_threshold
-        ):
-            return True
-        return False
+    def step_wait_s(self, step: dict) -> float:
+        wait = step.get("wait_s")
+        return float(wait) if wait not in (None, "") else float(self.probe_timeout_s)
 
-    def check_probe_response(self, response: bytes) -> bool:
-        literal, crc = self.has_literal_response(), self.modbus_crc_match
-        if not (literal or crc):
+    def check_step(self, step: dict, data: bytes, passive: bool = False) -> bool:
+        """1 cum khop khi: (co phan hoi -> khop 1 dong) VA (bat CRC -> khung
+        Modbus hop le dung unit_id/function_code cua cum). passive=True: data
+        la traffic nghe len, tim khung Modbus o bat ky vi tri nao."""
+        responses, crc = step_responses(step), self.modbus_crc_match
+        if not (responses or crc):
             return False
-        if literal and not self._check_literal(response):
+        if responses and not any(
+            response_matches(r, data, self.match_mode, self.fuzzy_threshold) for r in responses
+        ):
             return False
-        return not crc or check_modbus_response(self.unit_id, self.function_code, response)
+        if not crc:
+            return True
+        unit_id, function_code = int(step["unit_id"]), int(step["function_code"])
+        if passive:
+            return passive_scan_modbus(data, unit_id, function_code)
+        return check_modbus_response(unit_id, function_code, data)
 
     def check_passive_buffer(self, buffer: bytes) -> bool:
-        """Kiem tra traffic da nghe len duoc (khong tu gui gi) co dung khung
-        cua thiet bi nay khong."""
-        literal, crc = self.has_literal_response(), self.modbus_crc_match
-        if not (literal or crc):
+        """Traffic nghe len (khong tu gui gi) chua du dau hieu cua TAT CA cum."""
+        if not self.probe_steps:
             return False
-        if literal and not self._check_literal(buffer):
-            return False
-        return not crc or passive_scan_modbus(buffer, self.unit_id, self.function_code)
+        return all(self.check_step(step, buffer, passive=True) for step in self.probe_steps)
 
-    def describe_probe_frame(self, index: int) -> str:
-        """Mo ta lenh test thu index (0-based) dang de doc de ghi log debug."""
-        if self.protocol == "modbus_rtu" and index == 0:
-            info = {
-                "unitid": self.unit_id,
-                "fc": self.function_code,
-                "address": self.start_address,
-                "quantity": self.quantity,
-                "value": self.value,
-            }
-            return json.dumps(info, ensure_ascii=False)
-        if index == 0:
-            return repr(self.send_command)
-        return repr(self.send_command_2)
+    def describe_step(self, step: dict) -> str:
+        """Mo ta lenh cua 1 cum dang de doc de ghi log."""
+        if self.protocol == "modbus_rtu":
+            return json.dumps({
+                "unitid": step.get("unit_id"), "fc": step.get("function_code"),
+                "address": step.get("start_address"), "quantity": step.get("quantity"),
+                "value": step.get("value"),
+            }, ensure_ascii=False)
+        return repr(step.get("command") or "(chi nghe)")
 
 
 def resolve_exclude_usb(exclude_raw: list) -> set:
@@ -703,10 +711,10 @@ def _detect_candidate(vport: VirtualPort, path: str, frames: list,
          tranh collision voi ai dang dung that).
       2. Neu mo doc quyen duoc -> nghe passive passive_listen_s giay truoc.
          Nghe thay khop -> xong, khong can gui gi ca.
-      3. Khong nghe thay gi (vd bus dang im lang) -> lan luot gui TUNG lenh
-         trong 'frames' (0, 1 hoac 2 lenh - "command 1" roi "command 2" neu
-         co) tren CHINH ket noi doc quyen do, kiem phan hoi sau moi lenh -
-         khop 1 trong 2 la xong ngay, khong can thu lenh con lai.
+      3. Khong nghe thay du dau hieu -> chay lan luot TUNG cum (frames[i] la
+         lenh cua cum i, b"" = chi nghe) tren CHINH ket noi doc quyen do, cho
+         wait_s cua cum roi so voi phan hoi cua cum do. TAT CA cum khop moi
+         la dung thiet bi; cum dau tien loi thi dung, cac cum sau bo qua.
     Tra ve True neu candidate nay dung la thiet bi cua vport.
     """
     try:
@@ -754,46 +762,73 @@ def _detect_candidate(vport: VirtualPort, path: str, frames: list,
             )
             return True
 
-        # Khong nghe thay gi -> co the bus dang im lang -> lan luot gui tung
-        # lenh trong 'frames' tren CHINH ket noi doc quyen dang co san nay.
-        # Doi lai timeout doc theo dung probe_timeout_s cua port ao (luc mo
-        # ket noi dang de tam 0.2s chi de phuc vu vong doc passive o tren).
-        ser.timeout = vport.probe_timeout_s
-        for idx, frame in enumerate(frames):
+        # Khong nghe thay du dau hieu -> chay lan luot TUNG cum tren CHINH ket
+        # noi doc quyen nay: gui lenh cua cum -> cho wait_s cua cum -> so voi
+        # phan hoi cua cum do. Cum nao khong khop thi dung luon (khong gui
+        # tiep lenh cua cac cum sau toi 1 thiet bi da biet la khong dung).
+        steps = vport.probe_steps
+        results = []
+        for idx, (step, frame) in enumerate(zip(steps, frames), 1):
             if vport.stop_event.is_set():
                 return False
-            command_desc = vport.describe_probe_frame(idx)
+            wait_s = vport.step_wait_s(step)
             ser.reset_input_buffer()
-            logging.debug(
-                "[%s] %s <- GUI (lenh %d/%d): %s | %s (%d byte)",
-                vport.name, path, idx + 1, len(frames), command_desc,
-                describe_bytes(frame), len(frame),
-            )
-            ser.write(frame)
-            time.sleep(0.05)
-            resp = ser.read(512)
-            logging.debug(
-                "[%s] %s -> active response (lenh %d/%d): %s (%d byte)",
-                vport.name, path, idx + 1, len(frames), describe_bytes(resp), len(resp),
-            )
-
+            if frame:
+                logging.debug(
+                    "[%s] %s <- GUI (cum %d/%d): %s | %s (%d byte)",
+                    vport.name, path, idx, len(steps), vport.describe_step(step),
+                    describe_bytes(frame), len(frame),
+                )
+                ser.timeout = wait_s
+                ser.write(frame)
+                time.sleep(0.05)
+                resp = ser.read(512)
+            else:
+                resp = _listen(ser, wait_s, vport.stop_event)
             try:
-                matched = vport.check_probe_response(resp)
+                ok = vport.check_step(step, resp, passive=not frame)
             except Exception as exc:  # noqa: BLE001
                 logging.error(
-                    "[%s] LOI cau hinh khi so khop response tu %s: %s", vport.name, path, exc
+                    "[%s] LOI cau hinh khi so khop cum %d tu %s: %s", vport.name, idx, path, exc
                 )
                 raise
+            logging.debug(
+                "[%s] %s -> cum %d/%d %s, nhan: %s (%d byte)",
+                vport.name, path, idx, len(steps), "KHOP" if ok else "LOI",
+                describe_bytes(resp), len(resp),
+            )
+            results.append((ok, resp))
+            if not ok:
+                break
 
-            if matched:
-                logging.info(
-                    "[%s] KHOP voi %s (active, lenh %d/%d) | send_command: %s | response: %s",
-                    vport.name, path, idx + 1, len(frames), command_desc, describe_bytes(resp),
-                )
-                return True
-
-        logging.debug("[%s] %s khong khop (da thu het %d lenh)", vport.name, path, len(frames))
-        return False
+        matched = bool(steps) and len(results) == len(steps) and all(ok for ok, _ in results)
+        parts, parts_vi = [], []
+        for idx in range(1, len(steps) + 1):
+            if idx > len(results):
+                parts.append(f"cum {idx} bo qua")
+                parts_vi.append(f"cụm {idx} bỏ qua")
+            elif results[idx - 1][0]:
+                parts.append(f"cum {idx} OK")
+                parts_vi.append(f"cụm {idx} OK")
+            else:
+                resp = results[idx - 1][1]
+                got = f"{len(resp)} byte: {resp.hex()}" if resp else None
+                parts.append(f"cum {idx} LOI (" + (f"nhan {got}" if got else "khong co phan hoi") + ")")
+                parts_vi.append(f"cụm {idx} LỖI (" + (f"nhận {got}" if got else "không có phản hồi") + ")")
+        report = ", ".join(parts) or "khong co cum nao"
+        # So sanh theo trang thai tung cum (khong theo byte nhan duoc - gia tri
+        # thanh ghi Modbus doi moi lan doc se lam log lap lai moi chu ky).
+        status_key = tuple(ok for ok, _ in results)
+        changed = vport.last_probe_report.get(path) != status_key
+        vport.last_probe_report[path] = status_key
+        if matched:
+            logging.info("[%s] KHOP voi %s (active, tat ca %d cum OK)", vport.name, path, len(steps))
+        elif changed:
+            logging.info("[%s] %s khong khop: %s", vport.name, path, report)
+            log_event("info", vport.name, f"{path}: không khớp — " + ", ".join(parts_vi))
+        else:
+            logging.debug("[%s] %s khong khop (nhu lan truoc): %s", vport.name, path, report)
+        return matched
     finally:
         ser.close()
 
@@ -2226,7 +2261,8 @@ def _find_modbus_response(buf: bytes, unit_id: int, function_code: int) -> bytes
 def _spy_probe_port(device: str, baud: int, listen_s: float, spy_only: bool,
                      protocol: str = "raw", send_command: str | None = None,
                      unit_id=None, function_code=None,
-                     start_address=0, quantity=1, value=None, share: bool = False) -> dict:
+                     start_address=0, quantity=1, value=None, share: bool = False,
+                     wait_s: float = 1.0) -> dict:
     """Mo thu 1 port (xem _TestLink), nghe passive listen_s giay, neu co lenh
     gui (raw hoac modbus_rtu, xem _spy_build_frame) thi gui va doc them
     response chu dong. KHONG BAO GIO raise - moi loi deu tra ve trong field
@@ -2265,7 +2301,7 @@ def _spy_probe_port(device: str, baud: int, listen_s: float, spy_only: bool,
         if frame:
             result["sent_hex"] = frame.hex()
             result["sent_display"] = describe_bytes(frame)
-            resp = link.transact(frame, 1.0)
+            resp = link.transact(frame, wait_s)
             result["active_hex"] = resp.hex()
             result["active_display"] = describe_bytes(resp)
     except _TestLinkError as exc:
@@ -4087,16 +4123,17 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
       <p>ID giữ cố định. Bạn có thể đổi tên hiển thị.</p>
       <h3 class="step-heading"><span>01</span> Cổng &amp; kết nối</h3><div id="cfg_basic" class="cfg-grid"></div>
       <h3 class="step-heading"><span>02</span> Nhận diện thiết bị</h3>
-      <p>Lệnh và phản hồi dùng <code>hex:0104</code>hoặc <code>text:GET_ID$</code>.</p>
+      <p>Mỗi cụm gửi một lệnh rồi chờ phản hồi của chính lệnh đó. Tất cả cụm khớp mới là đúng thiết bị. Lệnh và phản hồi dùng <code>hex:0104</code> hoặc <code>text:GET_ID$</code>.</p>
       <div id="cfg_identity" class="cfg-grid"></div>
-      <p class="note">Khớp một trong hai phản hồi. Modbus bật kiểm tra CRC: phản hồi còn phải đúng CRC, Unit ID và mã hàm.</p>
+      <p class="note">Modbus bật kiểm tra CRC: phản hồi của mỗi cụm còn phải đúng CRC, Unit ID và mã hàm của cụm đó.</p>
       <div id="cfg_capture" class="capture-box">
-        <h4>Lấy phản hồi từ USB đang cắm</h4>
-        <p>Gửi lệnh nhận diện ở trên tới USB đã chọn rồi điền phản hồi nhận được.</p>
-        <div class="cfg-toolbar"><select id="cfg_capture_device" aria-label="USB để lấy phản hồi"></select><button id="cfg_capture_refresh" type="button">Quét USB</button><button id="cfg_capture_run" type="button">Gửi lệnh &amp; lấy phản hồi</button></div>
-        <p id="cfg_capture_result" role="status"></p>
-        <div id="cfg_capture_actions" class="cfg-toolbar" hidden><button id="cfg_capture_use" type="button">Dùng làm phản hồi nhận diện 1</button><button id="cfg_capture_head" type="button">Chỉ giữ phần cố định</button></div>
+        <h4>Thử với USB đang cắm</h4>
+        <p>Chọn USB rồi bấm Gửi ở từng cụm để lấy phản hồi thật, hoặc thử tất cả cụm theo thứ tự.</p>
+        <div class="cfg-toolbar"><select id="cfg_capture_device" aria-label="USB để lấy phản hồi"></select><button id="cfg_capture_refresh" type="button">Quét USB</button><button id="cfg_steps_test" type="button">Thử tất cả cụm</button></div>
+        <div id="cfg_capture_result" role="status"></div>
       </div>
+      <div id="cfg_steps"></div>
+      <button id="cfg_step_add" type="button" class="step-add">＋ Thêm cụm</button>
       <details><summary>03 · Tùy chọn nâng cao</summary><div id="cfg_advanced" class="cfg-grid"></div></details>
       <details><summary>Kiểm tra quy tắc với phản hồi đã thu</summary>
         <p>Dán phản hồi để kiểm tra. Không gửi lệnh USB.</p>
@@ -4127,8 +4164,18 @@ _CONFIG_UI_HTML = r"""<div id="tab_config" class="tab-content">
  .capture-box {margin-top:16px;padding:14px 16px;border:1px dashed #3b506a;border-radius:10px;background:#101a28}
  .capture-box h4 {margin:0 0 4px;font-size:14px}
  .capture-box select {flex:1 1 260px;margin:0;width:auto}
- #cfg_capture_result {font-size:12px;overflow-wrap:anywhere}
- #cfg_capture_result code {color:var(--text)}
+ #cfg_capture_result,.step-result {font-size:12px;overflow-wrap:anywhere}
+ #cfg_capture_result code,.step-result code {color:var(--text)}
+ .probe-step {margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#0f1824}
+ .probe-step-head {display:flex;align-items:center;gap:10px}
+ .probe-step-head strong {font-size:14px}
+ .probe-step-head .step-badge {font-size:11px}
+ .probe-step-head .step-badge.ok {color:var(--accent)}
+ .probe-step-head .step-badge.fail {color:#ff9f9f}
+ .probe-step-head button {margin-left:auto!important;padding:5px 10px;font-size:12px;width:auto}
+ .probe-step .cfg-toolbar {position:static!important;margin:10px 0 0!important;padding:0!important;border:0!important;background:none!important}
+ .probe-step .cfg-toolbar button {padding:7px 12px;font-size:12px;background:#25364d!important;color:var(--text)!important}
+ .step-add {margin-top:12px;width:auto}
  .port-device {font-size:11px;color:var(--muted)}
  #cfg_ports .cfg-disabled {opacity:.65}
  .tab-bar {flex-wrap:wrap;padding-right:46px}
@@ -4165,31 +4212,37 @@ _CONFIG_UI_SCRIPT = r"""
 (() => {
   const $ = id => document.getElementById(id);
   const clone = value => JSON.parse(JSON.stringify(value));
-  let state=null, dirty=false, editIndex=-1, pollTimer=null, applying=false, runtime={}, runtimeKey='', captured=null;
-  const portDefaults={name:'',friendly_name:'',enabled:true,protocol:'raw',baud:9600,unit_id:1,function_code:3,start_address:0,quantity:1,value:0,send_command:'',send_command_2:'',expected_response:'',expected_response_2:'',match_mode:'contains',fuzzy_threshold:80,output_mode:'tcp',tcp_port:6001,mbap_rtu_bridge:false,modbus_crc_match:false,modbus_response_timeout_s:1,pty_symlink:'',on_connect_send:''};
+  let state=null, dirty=false, editIndex=-1, pollTimer=null, applying=false, runtime={}, runtimeKey='', captures=[];
+  const stepDefault={command:'',unit_id:1,function_code:3,start_address:0,quantity:1,value:0,expected_response:'',wait_s:null};
+  const portDefaults={name:'',friendly_name:'',enabled:true,protocol:'raw',baud:9600,probe_steps:[stepDefault],match_mode:'contains',fuzzy_threshold:80,output_mode:'tcp',tcp_port:6001,mbap_rtu_bridge:false,modbus_crc_match:false,modbus_response_timeout_s:1,pty_symlink:'',on_connect_send:''};
+  // Backups from before identification steps: command/response at port level -> one step.
+  function legacySteps(v){return [{...stepDefault,command:v.send_command||'',expected_response:[v.expected_response,v.expected_response_2].filter(Boolean).join('\n'),unit_id:v.unit_id??1,function_code:v.function_code??3,start_address:v.start_address??0,quantity:v.quantity??1,value:v.value??0}];}
+  function portSteps(p){return Array.isArray(p.probe_steps)&&p.probe_steps.length?p.probe_steps:legacySteps(p);}
 
   const templates={
     blank:{label:'Tùy chỉnh',note:'Tự nhập thông số thiết bị.',options:{}},
-    uart:{label:'UART → TCP',note:'Sửa lệnh và phản hồi riêng của thiết bị.',options:{protocol:'raw',baud:115200,send_command:'text:GET_ID$',expected_response:'',output_mode:'tcp'}},
-    passive:{label:'UART · chỉ nghe → TCP',note:'Nhập dấu hiệu nhận diện trong dữ liệu thiết bị tự gửi.',options:{protocol:'raw',baud:9600,send_command:'',expected_response:'',output_mode:'tcp'}},
-    modbus:{label:'Modbus TCP ↔ RTU',note:'Đặt đúng Unit ID và thanh ghi đọc.',options:{protocol:'modbus_rtu',baud:9600,unit_id:1,function_code:3,start_address:0,quantity:1,output_mode:'tcp',mbap_rtu_bridge:true}},
-    passthrough:{label:'Modbus RTU qua TCP',note:'Client gửi khung RTU, không chuyển đổi Modbus TCP.',options:{protocol:'modbus_rtu',baud:9600,unit_id:1,function_code:3,start_address:0,quantity:1,output_mode:'tcp',mbap_rtu_bridge:false}},
+    uart:{label:'UART → TCP',note:'Sửa lệnh và phản hồi riêng của thiết bị.',options:{protocol:'raw',baud:115200,probe_steps:[{...stepDefault,command:'text:GET_ID$'}],output_mode:'tcp'}},
+    passive:{label:'UART · chỉ nghe → TCP',note:'Nhập dấu hiệu nhận diện trong dữ liệu thiết bị tự gửi.',options:{protocol:'raw',baud:9600,probe_steps:[{...stepDefault}],output_mode:'tcp'}},
+    modbus:{label:'Modbus TCP ↔ RTU',note:'Đặt đúng Unit ID và thanh ghi đọc.',options:{protocol:'modbus_rtu',baud:9600,probe_steps:[{...stepDefault}],output_mode:'tcp',mbap_rtu_bridge:true}},
+    passthrough:{label:'Modbus RTU qua TCP',note:'Client gửi khung RTU, không chuyển đổi Modbus TCP.',options:{protocol:'modbus_rtu',baud:9600,probe_steps:[{...stepDefault}],output_mode:'tcp',mbap_rtu_bridge:false}},
     pty:{label:'UART → PTY',note:'Nhập đường dẫn PTY và phản hồi nhận diện.',options:{protocol:'raw',baud:9600,output_mode:'pty',pty_symlink:'/dev/usb-manager-device'}}
   };
   function templateDraft(key){
     const next=6001+Array.from({length:30},(_,i)=>i).find(i=>!state.options.ports.some(p=>p.output_mode==='tcp'&&p.tcp_port===6001+i));
-    return {...portDefaults,...templates[key].options,tcp_port:Number.isFinite(next)?next:6001};
+    return clone({...portDefaults,...templates[key].options,tcp_port:Number.isFinite(next)?next:6001});
   }
   function fillEditor(value){
     fields('cfg_basic',basic,value,'cp_');fields('cfg_identity',identity,value,'cp_');fields('cfg_advanced',advanced,value,'cp_');
+    renderSteps(clone(portSteps(value)));
     $('cp_name').readOnly=editIndex>=0;
     for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode'])$('cp_'+key).onchange=visibility;
     visibility();
   }
 
   const basic=[['name','ID port','text'],['friendly_name','Tên hiển thị','text'],['enabled','Bật port','checkbox'],['protocol','Giao thức thiết bị',['raw','modbus_rtu']],['baud','Baud','number',300,4000000],['output_mode','Kiểu xuất',['tcp','pty']],['tcp_port','Cổng TCP (6001–6030)','number',6001,6030],['pty_symlink','Đường dẫn PTY','text'],['mbap_rtu_bridge','Chuyển Modbus TCP ↔ RTU','checkbox']];
-  const identity=[['send_command','Lệnh nhận diện (Raw)','text'],['unit_id','Địa chỉ Modbus','number',1,247],['function_code','Mã hàm Modbus','number',1,127],['start_address','Địa chỉ bắt đầu','number',0,65535],['quantity','Số lượng','number',1,2000],['value','Giá trị ghi (FC05/06)','number',0,65535],['expected_response','Phản hồi nhận diện 1','textarea'],['expected_response_2','Phản hồi nhận diện 2 (tùy chọn)','textarea'],['match_mode','Cách so khớp',['contains','exact','startswith','fuzzy']],['modbus_crc_match','Kiểm tra CRC + địa chỉ + mã hàm Modbus','checkbox']];
-  const advanced=[['send_command_2','Lệnh dự phòng','text'],['fuzzy_threshold','Ngưỡng fuzzy (%)','number',1,100],['probe_timeout_s','Timeout dò (giây; trống = mặc định)','number',.05,30],['rescan_interval_s','Chu kỳ dò lại (giây; trống = mặc định)','number',1,3600],['modbus_response_timeout_s','Timeout phản hồi Modbus TCP (giây)','number',.1,30],['on_connect_send','Dữ liệu chào client TCP (tùy chọn)','text']];
+  const identity=[['match_mode','Cách so khớp',['contains','exact','startswith','fuzzy']],['modbus_crc_match','Kiểm tra CRC + địa chỉ + mã hàm Modbus','checkbox']];
+  const stepFields=[['command','Lệnh gửi (trống = chỉ nghe)','text'],['unit_id','Địa chỉ Modbus','number',1,247],['function_code','Mã hàm Modbus','number',1,127],['start_address','Địa chỉ bắt đầu','number',0,65535],['quantity','Số lượng','number',1,2000],['value','Giá trị ghi (FC05/06)','number',0,65535],['expected_response','Phản hồi mong đợi (mỗi dòng một phản hồi thay thế)','textarea'],['wait_s','Chờ phản hồi (giây; trống = timeout dò)','number',.05,30]];
+  const advanced=[['fuzzy_threshold','Ngưỡng fuzzy (%)','number',1,100],['probe_timeout_s','Timeout dò (giây; trống = mặc định)','number',.05,30],['rescan_interval_s','Chu kỳ dò lại (giây; trống = mặc định)','number',1,3600],['modbus_response_timeout_s','Timeout phản hồi Modbus TCP (giây)','number',.1,30],['on_connect_send','Dữ liệu chào client TCP (tùy chọn)','text']];
   const globals=[['loglevel','Mức log',['error','warning','info','debug']],['scan_glob','Mẫu quét USB','text'],['exclude_usb','USB loại trừ (mỗi dòng một đường dẫn)','textarea'],['settle_delay_s','Chờ USB khi khởi động (giây)','number',0,120],['default_probe_timeout_s','Timeout dò mặc định (giây)','number',.05,30],['default_rescan_interval_s','Chu kỳ dò mặc định (giây)','number',1,3600],['passive_listen_s','Thời gian nghe trước khi gửi (giây)','number',0,30],['mqtt_host','MQTT host (trống = tự động)','text'],['mqtt_port','MQTT port','number',1,65535],['mqtt_username','MQTT username','text'],['mqtt_password','Mật khẩu MQTT mới','password']];
   async function api(path,body) {
     const response=await fetch(path,{cache:'no-store',...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});
@@ -4211,7 +4264,7 @@ _CONFIG_UI_SCRIPT = r"""
       const value=values[key];
       if(type==='checkbox')input.checked=!!value;
       else input.value=Array.isArray(value)?value.join('\n'):(value??'');
-      if(type==='number'){input.min=min;input.max=max;input.step=['probe_timeout_s','modbus_response_timeout_s','default_probe_timeout_s','passive_listen_s'].includes(key)?'any':'1';}
+      if(type==='number'){input.min=min;input.max=max;input.step=['probe_timeout_s','modbus_response_timeout_s','default_probe_timeout_s','passive_listen_s','wait_s'].includes(key)?'any':'1';}
       if(type==='textarea') input.rows=3;
       if(type==='password'){input.autocomplete='new-password';input.placeholder=state?.has_mqtt_password?'Đã có mật khẩu; trống = giữ nguyên':'Chưa lưu mật khẩu';}
       wrapper.append(caption,input);$(container).append(wrapper);
@@ -4229,8 +4282,12 @@ _CONFIG_UI_SCRIPT = r"""
   }
   function visibility() {
     const modbus=$('cp_protocol').value==='modbus_rtu',tcp=$('cp_output_mode').value==='tcp';
-    for(const key of ['unit_id','function_code','start_address','quantity','value']) $('cp_'+key).parentElement.hidden=!modbus;
-    $('cp_send_command').parentElement.hidden=modbus;
+    for(const el of $('cfg_steps').querySelectorAll('[data-field]'))
+      if(['unit_id','function_code','start_address','quantity','value'].includes(el.dataset.field))el.hidden=!modbus;
+      else if(el.dataset.field==='command')el.hidden=modbus;
+    const single=$('cfg_steps').children.length<2;
+    for(const b of $('cfg_steps').querySelectorAll('.step-remove'))b.hidden=single;
+    $('cfg_step_add').disabled=$('cfg_steps').children.length>=10;
     $('cp_tcp_port').parentElement.hidden=!tcp;
     $('cp_pty_symlink').parentElement.hidden=tcp;
     $('cp_mbap_rtu_bridge').parentElement.hidden=!modbus||!tcp;
@@ -4240,6 +4297,7 @@ _CONFIG_UI_SCRIPT = r"""
   }
   function readPort() {
     const result=read([...basic,...identity,...advanced],'cp_');
+    result.probe_steps=readSteps();
     if(result.protocol!=='modbus_rtu'||result.output_mode!=='tcp')result.mbap_rtu_bridge=false;
     if(result.protocol!=='modbus_rtu')result.modbus_crc_match=false;
     return result;
@@ -4247,7 +4305,7 @@ _CONFIG_UI_SCRIPT = r"""
   function edit(index) {
     if(applying)return;
     editIndex=index;
-    const value=index<0?templateDraft('blank'):{...portDefaults,...state.options.ports[index]};
+    const value=index<0?templateDraft('blank'):{...clone(portDefaults),...state.options.ports[index]};
     fillEditor(value);
     $('cfg_template_box').hidden=index>=0;
     $('cfg_template').replaceChildren();
@@ -4255,7 +4313,7 @@ _CONFIG_UI_SCRIPT = r"""
     $('cfg_template_note').textContent=str(templates.blank.note);
     $('cfg_editor_title').textContent=index<0?str('Thêm port'):str('Sửa port {name}',{name:value.name});
     $('cfg_editor_error').textContent='';$('cfg_check_result').textContent='';$('cfg_response').value='';
-    captured=null;$('cfg_capture_result').replaceChildren();$('cfg_capture_actions').hidden=true;captureDevices();
+    $('cfg_capture_result').replaceChildren();captureDevices();
     for(const key of ['protocol','output_mode','mbap_rtu_bridge','match_mode'])$('cp_'+key).onchange=visibility;
     visibility();$('cfg_editor').showModal();
   }
@@ -4265,13 +4323,19 @@ _CONFIG_UI_SCRIPT = r"""
     const query=$('cfg_search').value.trim().toLocaleLowerCase(), filter=$('cfg_filter').value;
     let visible=0;
     for(const [index,p] of state.options.ports.entries()) {
-      if(query && ![p.name,p.friendly_name,p.tcp_port,p.expected_response,p.protocol].join(' ').toLocaleLowerCase().includes(query))continue;
+      const steps=portSteps(p);
+      if(query && ![p.name,p.friendly_name,p.tcp_port,...steps.map(s=>s.expected_response),p.protocol].join(' ').toLocaleLowerCase().includes(query))continue;
       if(filter==='enabled'&&!p.enabled||filter==='disabled'&&p.enabled)continue;
       visible++;
       const card=document.createElement('div');card.className='card cfg-port'+(p.enabled?'':' cfg-disabled');
       const info=document.createElement('div');const title=document.createElement('h3');title.dataset.noTranslate='';title.textContent=p.friendly_name||p.name;
       const line=document.createElement('p');line.dataset.noTranslate='';line.textContent=p.name+' · '+p.protocol+' · '+p.baud+' baud · '+(p.output_mode==='pty'?p.pty_symlink:':'+p.tcp_port)+(p.mbap_rtu_bridge?' · Modbus TCP':'');
-      const rule=document.createElement('p');const ruleLabel=document.createElement('span');ruleLabel.textContent=str('Nhận diện:');const payload=document.createElement('span');if(p.expected_response||p.expected_response_2)payload.dataset.noTranslate='';const literal=p.expected_response||p.expected_response_2;payload.textContent=' '+[literal,p.protocol==='modbus_rtu'&&p.modbus_crc_match?str('CRC + địa chỉ + mã hàm Modbus'):''].filter(Boolean).join(' + ');rule.append(ruleLabel,payload);
+      const rule=document.createElement('p');const ruleLabel=document.createElement('span');ruleLabel.textContent=str('Nhận diện:');
+      const count=document.createElement('span');if(steps.length>1)count.textContent=' '+str('{count} cụm',{count:steps.length})+' ·';
+      const literal=steps.map(s=>(s.expected_response||'').split('\n')[0].trim()).find(Boolean)||'';
+      const payload=document.createElement('span');payload.dataset.noTranslate='';payload.textContent=literal?' '+literal:'';
+      const crc=document.createElement('span');if(p.protocol==='modbus_rtu'&&p.modbus_crc_match)crc.textContent=(literal?' + ':' ')+str('CRC + địa chỉ + mã hàm Modbus');
+      rule.append(ruleLabel,count,payload,crc);
       const rt=runtime[p.name],device=document.createElement('p');device.className='port-device';
       if(p.enabled&&rt){if(rt.device_path){device.dataset.noTranslate='';device.textContent=str('Đang khớp: {path}',{path:rt.device_path});}else device.textContent=str(rt.state||'Đang dò thiết bị...');}
       const badge=document.createElement('span');badge.className='port-state '+(p.enabled?'on':'off');badge.textContent=str(p.enabled?'Đang bật':'Đã tắt');
@@ -4334,7 +4398,7 @@ _CONFIG_UI_SCRIPT = r"""
       }
       const keep=[...select.options].find(o=>!o.disabled&&o.value===previous)||[...select.options].find(o=>!o.disabled);if(keep)keep.selected=true;
       if(!select.options.length){const o=document.createElement('option');o.value='';o.textContent=str('Không có USB đang cắm');select.append(o);}
-    }catch(e){$('cfg_capture_result').textContent=e.message;}
+    }catch(e){$('cfg_capture_result').replaceChildren(errorLine(e.message));}
   }
   function encodeCapture(hex,preferText) {
     const bytes=(hex.match(/../g)||[]).map(h=>parseInt(h,16));
@@ -4347,59 +4411,114 @@ _CONFIG_UI_SCRIPT = r"""
     const line=document.createElement('div'),caption=document.createElement('span'),data=document.createElement('code');
     caption.textContent=label?str(label)+' ':'';data.dataset.noTranslate='';data.textContent=value;line.append(caption,data);return line;
   }
-  async function checkCaptured() {
-    if(!captured)return;
-    $('cfg_capture_result').querySelector('.capture-verdict')?.remove();
-    const port=readPort();
-    if(!port.expected_response&&!port.expected_response_2&&!port.modbus_crc_match)return; // no rule yet
-    const verdict=document.createElement('div');
-    try {
-      const result=await api('api/config/check-response',{port,response:'hex:'+captured.hex});
-      verdict.className='capture-verdict'+(result.matched?'':' err');
-      const mark=document.createElement('span');mark.textContent=result.matched?'✓ ':'✗ ';const msg=document.createElement('span');msg.textContent=str(result.matched?'Khớp với quy tắc hiện tại':'Chưa khớp quy tắc hiện tại');verdict.append(mark,msg);
-    }catch(e){verdict.className='capture-verdict err';verdict.textContent='✗ '+str(e.message);}
-    $('cfg_capture_result').querySelector('.capture-verdict')?.remove();$('cfg_capture_result').append(verdict);
+  function errorLine(message){const e=document.createElement('div');e.className='err';e.textContent=str(message);return e;}
+  // One card per identification step: command -> wait -> response of that command.
+  function renderSteps(steps) {
+    const box=$('cfg_steps');box.replaceChildren();captures=steps.map(()=>null);
+    steps.forEach((step,i)=>{
+      const card=document.createElement('div');card.className='probe-step';
+      const head=document.createElement('div');head.className='probe-step-head';
+      const title=document.createElement('strong');title.textContent=str('Cụm {n}',{n:i+1});
+      const badge=document.createElement('span');badge.className='step-badge';badge.id='cs'+i+'_badge';
+      const remove=document.createElement('button');remove.type='button';remove.className='step-remove';remove.textContent=str('Xóa cụm');
+      remove.onclick=()=>{const all=readSteps();all.splice(i,1);renderSteps(all);};
+      head.append(title,badge,remove);
+      const grid=document.createElement('div');grid.className='cfg-grid';grid.id='cs'+i+'_grid';
+      const tools=document.createElement('div');tools.className='cfg-toolbar';
+      const run=document.createElement('button');run.type='button';run.textContent=str('Gửi lệnh & lấy phản hồi');run.id='cs'+i+'_run';run.onclick=()=>captureStep(i);
+      const use=document.createElement('button');use.type='button';use.textContent=str('Dùng làm phản hồi');use.hidden=true;use.id='cs'+i+'_use';use.onclick=()=>useCapture(i,false);
+      const fixed=document.createElement('button');fixed.type='button';fixed.textContent=str('Chỉ giữ phần cố định');fixed.hidden=true;fixed.id='cs'+i+'_head';fixed.onclick=()=>useCapture(i,true);
+      tools.append(run,use,fixed);
+      const result=document.createElement('div');result.className='step-result';result.id='cs'+i+'_result';result.setAttribute('role','status');
+      card.append(head,grid,tools,result);box.append(card);
+      fields(grid.id,stepFields,{...stepDefault,...step},'cs'+i+'_');
+    });
+    visibility();
   }
-  $('cfg_capture_refresh').onclick=captureDevices;
-  $('cfg_capture_run').onclick=async()=>{
-    const select=$('cfg_capture_device'),option=select.selectedOptions[0],out=$('cfg_capture_result');
-    if(!option||!option.value){out.textContent=str('Chọn USB trước.');return;}
-    const p=readPort(),modbus=p.protocol==='modbus_rtu',listenOnly=!modbus&&!p.send_command;
-    if(modbus&&[5,6,15,16].includes(p.function_code)&&!uiConfirm('Mã hàm ghi sẽ ghi thật xuống thiết bị. Tiếp tục?'))return;
+  function readSteps() {
+    return [...$('cfg_steps').children].map((_,i)=>{
+      const step=read(stepFields,'cs'+i+'_');
+      step.wait_s=step.wait_s??null;
+      return step;
+    });
+  }
+  $('cfg_step_add').onclick=()=>{
+    const all=readSteps(),last=all[all.length-1]||stepDefault;
+    if(all.length>=10)return;
+    all.push({...stepDefault,unit_id:last.unit_id??1,function_code:last.function_code??3});renderSteps(all);
+  };
+  function setBadge(i,matched) {
+    const badge=$('cs'+i+'_badge');if(!badge)return;
+    badge.className='step-badge'+(matched===true?' ok':matched===false?' fail':'');
+    badge.textContent=matched===true?'✓ '+str('Khớp'):matched===false?'✗ '+str('Không khớp'):'';
+  }
+  async function checkStep(i) {
+    const cap=captures[i];if(!cap)return null;
+    const out=$('cs'+i+'_result');out.querySelector('.capture-verdict')?.remove();
+    const port=readPort(),step=port.probe_steps[i];
+    if(!step.expected_response.trim()&&!port.modbus_crc_match){setBadge(i,null);return null;} // no rule yet
+    const verdict=document.createElement('div');let matched=false;
+    try {
+      const result=await api('api/config/check-response',{port,step:i,response:'hex:'+cap.hex});matched=result.matched;
+      verdict.className='capture-verdict'+(matched?'':' err');verdict.textContent=(matched?'✓ ':'✗ ')+str(matched?'Khớp với quy tắc hiện tại':'Chưa khớp quy tắc hiện tại');
+    }catch(e){verdict.className='capture-verdict err';verdict.textContent='✗ '+str(e.message);}
+    out.querySelector('.capture-verdict')?.remove();out.append(verdict);setBadge(i,matched);return matched;
+  }
+  // Sends this step's command to the selected USB; returns true/false (matched) or null.
+  async function captureStep(i,confirmWrite=true) {
+    const select=$('cfg_capture_device'),option=select.selectedOptions[0],out=$('cs'+i+'_result');
+    if(!option||!option.value){out.replaceChildren(errorLine('Chọn USB trước.'));return false;}
+    const p=readPort(),step=p.probe_steps[i],modbus=p.protocol==='modbus_rtu',listenOnly=!modbus&&!step.command;
+    if(confirmWrite&&modbus&&[5,6,15,16].includes(step.function_code)&&!uiConfirm('Mã hàm ghi sẽ ghi thật xuống thiết bị. Tiếp tục?'))return false;
+    const wait=step.wait_s??p.probe_timeout_s??Number(state.options.default_probe_timeout_s)??0.4;
     const body={device:option.value,baud:p.baud,protocol:p.protocol,share:option.dataset.share==='1',spy_only:listenOnly,
-      listen_s:listenOnly?Math.max(Number(state.options.passive_listen_s)||0,3):0.2};
-    if(modbus)Object.assign(body,{unit_id:p.unit_id,function_code:p.function_code,start_address:p.start_address,quantity:p.quantity,value:p.value});
-    else body.send_command=p.send_command;
-    captured=null;$('cfg_capture_actions').hidden=true;$('cfg_capture_run').disabled=true;
+      listen_s:listenOnly?Math.max(Number(step.wait_s)||Number(state.options.passive_listen_s)||0,3):0.2,wait_s:wait};
+    if(modbus)Object.assign(body,{unit_id:step.unit_id,function_code:step.function_code,start_address:step.start_address,quantity:step.quantity,value:step.value});
+    else body.send_command=step.command;
+    captures[i]=null;$('cs'+i+'_use').hidden=true;$('cs'+i+'_head').hidden=true;$('cs'+i+'_run').disabled=true;setBadge(i,null);
     out.textContent=str(listenOnly?'Đang nghe dữ liệu thiết bị tự gửi…':'Đang gửi lệnh…');
     try {
       const r=await api('api/probe',body);out.replaceChildren();
       if(r.note)out.append(captureLine('',r.note));
-      if(r.error){const e=document.createElement('div');e.className='err';e.textContent=r.error;out.append(e);return;}
+      if(r.error){out.append(errorLine(r.error));setBadge(i,false);return false;}
       const sent=r.sent_hex!==undefined;
       if(sent)out.append(captureLine('Gửi:',r.sent_display));
       const hex=sent?(r.active_hex||''):(r.passive_hex||'');
-      if(!hex){const e=document.createElement('div');e.className='err';e.textContent=str('Không có phản hồi. Kiểm tra baud, lệnh hoặc dây.');out.append(e);return;}
+      if(!hex){out.append(errorLine('Không có phản hồi. Kiểm tra baud, lệnh hoặc dây.'));setBadge(i,false);return false;}
       out.append(captureLine('Nhận:',sent?r.active_display:r.passive_display));
-      captured={hex,modbus};
-      $('cfg_capture_head').hidden=!modbus||hex.length<6;$('cfg_capture_actions').hidden=false;
+      captures[i]={hex,modbus};
+      $('cs'+i+'_use').hidden=false;$('cs'+i+'_head').hidden=!modbus||hex.length<6;
       if(modbus){const n=document.createElement('div');n.textContent=str('Giá trị thanh ghi có thể đổi theo thời gian: khi đó bấm "Chỉ giữ phần cố định" hoặc bật kiểm tra CRC.');out.append(n);}
-      checkCaptured();
-    }catch(e){out.textContent=e.message;}
-    finally{$('cfg_capture_run').disabled=false;}
-  };
-  $('cfg_capture_use').onclick=()=>{
-    if(!captured)return;
-    $('cp_expected_response').value=encodeCapture(captured.hex,!captured.modbus);
-    $('cfg_response').value='hex:'+captured.hex;checkCaptured();
-  };
-  $('cfg_capture_head').onclick=()=>{
-    if(!captured)return;
-    // Read FC 1-4: unit + FC + byte count. Write/exception replies: unit + FC.
-    const fc=parseInt(captured.hex.slice(2,4),16),fixed=fc>=1&&fc<=4?6:4;
-    $('cp_expected_response').value='hex:'+captured.hex.slice(0,fixed);
-    if(!['contains','startswith'].includes($('cp_match_mode').value))$('cp_match_mode').value='startswith';
-    $('cfg_response').value='hex:'+captured.hex;visibility();checkCaptured();
+      return await checkStep(i);
+    }catch(e){out.replaceChildren(errorLine(e.message));setBadge(i,false);return false;}
+    finally{$('cs'+i+'_run').disabled=false;}
+  }
+  function useCapture(i,fixedOnly) {
+    const cap=captures[i];if(!cap)return;
+    if(fixedOnly){
+      // Read FC 1-4: unit + FC + byte count. Write/exception replies: unit + FC.
+      const fc=parseInt(cap.hex.slice(2,4),16),fixed=fc>=1&&fc<=4?6:4;
+      $('cs'+i+'_expected_response').value='hex:'+cap.hex.slice(0,fixed);
+      if(!['contains','startswith'].includes($('cp_match_mode').value))$('cp_match_mode').value='startswith';
+      visibility();
+    } else $('cs'+i+'_expected_response').value=encodeCapture(cap.hex,!cap.modbus);
+    checkStep(i);
+  }
+  $('cfg_capture_refresh').onclick=captureDevices;
+  $('cfg_steps_test').onclick=async()=>{
+    const out=$('cfg_capture_result'),steps=readPort().probe_steps,modbus=readPort().protocol==='modbus_rtu';
+    if(!$('cfg_capture_device').value){out.replaceChildren(errorLine('Chọn USB trước.'));return;}
+    if(modbus&&steps.some(s=>[5,6,15,16].includes(s.function_code))&&!uiConfirm('Mã hàm ghi sẽ ghi thật xuống thiết bị. Tiếp tục?'))return;
+    $('cfg_steps_test').disabled=true;out.textContent=str('Đang thử {count} cụm…',{count:steps.length});
+    const results=[];
+    try{for(let i=0;i<steps.length;i++)results.push(await captureStep(i,false));}
+    finally{$('cfg_steps_test').disabled=false;}
+    out.replaceChildren();
+    const line=document.createElement('div');line.textContent=results.map((r,i)=>str('Cụm {n}',{n:i+1})+(r===true?' ✓':r===false?' ✗':' –')).join(' · ');
+    const all=results.length&&results.every(r=>r===true),verdict=document.createElement('div');
+    verdict.className=all?'capture-verdict':'capture-verdict err';
+    verdict.textContent=str(all?'Tất cả cụm khớp: đúng thiết bị.':'Chưa khớp tất cả cụm: không nhận là thiết bị này.');
+    out.append(line,verdict);
   };
   async function load(snapshot=null) {
     try {
@@ -4430,8 +4549,9 @@ _CONFIG_UI_SCRIPT = r"""
     e.preventDefault();const p=readPort();
     if(!/^[A-Za-z0-9_-]{1,64}$/.test(p.name)){$('cfg_editor_error').textContent='ID port cần 1–64 chữ không dấu, số, dấu - hoặc _.';return;}
     if(state.options.ports.some((other,i)=>i!==editIndex&&other.name===p.name)){$('cfg_editor_error').textContent='ID port đã tồn tại.';return;}
-    if(p.enabled&&p.protocol==='raw'&&!p.expected_response&&!p.expected_response_2){$('cfg_editor_error').textContent='Cần ít nhất một phản hồi nhận diện cho Raw.';return;}
-    if(p.enabled&&p.protocol==='modbus_rtu'&&!p.modbus_crc_match&&!p.expected_response&&!p.expected_response_2){$('cfg_editor_error').textContent='Modbus cần phản hồi nhận diện hoặc bật kiểm tra CRC.';return;}
+    const missing=p.probe_steps.findIndex(s=>!s.expected_response.trim());
+    if(p.enabled&&missing>=0&&p.protocol==='raw'){$('cfg_editor_error').textContent=str('Cụm {n} cần phản hồi mong đợi.',{n:missing+1});return;}
+    if(p.enabled&&missing>=0&&p.protocol==='modbus_rtu'&&!p.modbus_crc_match){$('cfg_editor_error').textContent=str('Cụm {n} cần phản hồi mong đợi hoặc bật kiểm tra CRC.',{n:missing+1});return;}
     if(editIndex<0)state.options.ports.push(p);else state.options.ports[editIndex]=p;
     $('cfg_editor').close();markDirty();renderPorts();
   };
@@ -4457,7 +4577,7 @@ _CONFIG_UI_SCRIPT = r"""
     } catch(e){status(e.message,true);}
   };
   $('cfg_check').onclick=async()=>{
-    try {const result=await api('api/config/check-response',{port:readPort(),response:$('cfg_response').value});$('cfg_check_result').textContent=(result.matched?'Khớp':'Không khớp')+' · '+result.bytes+' byte';}
+    try {const result=await api('api/config/check-response',{port:readPort(),response:$('cfg_response').value});$('cfg_check_result').textContent=(result.steps||[]).map((m,i)=>str('Cụm {n}',{n:i+1})+': '+str(m?'Khớp':'Không khớp')).join(' · ')+' · '+result.bytes+' byte';}
     catch(e){$('cfg_check_result').textContent=e.message;}
   };
   $('cfg_export').onclick=()=>{
@@ -4591,14 +4711,10 @@ const USBManagerI18n = (() => {
     "Không tải được danh sách port ảo.": "Could not load ports.",
     "Không tải được log.": "Could not load the log.",
     "Khớp": "Matched",
-    "Khớp một trong hai phản hồi. Modbus bật kiểm tra CRC: phản hồi còn phải đúng CRC, Unit ID và mã hàm.": "Either response can match. With the Modbus CRC check on, the response must also have a valid CRC, unit ID and function code.",
     "Kiểm tra CRC + địa chỉ + mã hàm Modbus": "Check Modbus CRC + unit ID + function code",
-    "Lấy phản hồi từ USB đang cắm": "Capture a response from a connected USB device",
-    "Gửi lệnh nhận diện ở trên tới USB đã chọn rồi điền phản hồi nhận được.": "Send the identification command above to the selected USB device and fill in the response.",
     "USB để lấy phản hồi": "USB device to capture from",
     "Quét USB": "Scan USB",
     "Gửi lệnh & lấy phản hồi": "Send & capture response",
-    "Dùng làm phản hồi nhận diện 1": "Use as response signature 1",
     "Chỉ giữ phần cố định": "Keep the fixed part only",
     "Chọn USB trước.": "Select a USB device first.",
     "Không có USB đang cắm": "No connected USB devices",
@@ -4633,9 +4749,7 @@ const USBManagerI18n = (() => {
     "Lưu và áp dụng": "Save & apply",
     "Lưu và áp dụng ở danh sách cổng.": "Save & apply from the port list.",
     "Lặp lại mỗi (giây, 0 = chỉ gửi 1 lần)": "Repeat interval (s; 0 = once)",
-    "Lệnh dự phòng": "Fallback command",
     "Lệnh gửi": "Command",
-    "Lệnh nhận diện (Raw)": "Identification command (Raw)",
     "Lệnh và phản hồi dùng": "Use",
     "Lọc cổng": "Filter ports",
     "Lọc theo loại": "Filter by type",
@@ -4664,8 +4778,6 @@ const USBManagerI18n = (() => {
     "Nội dung": "Message",
     "Phản hồi (hex)": "Response (hex)",
     "Phản hồi (sau khi gửi):": "Response after sending:",
-    "Phản hồi nhận diện 1": "Response signature 1",
-    "Phản hồi nhận diện 2 (tùy chọn)": "Response signature 2 (optional)",
     "Phản hồi thực tế (hex:… hoặc text:…)": "Captured response (hex:… or text:…)",
     "Phản hồi:": "Response:",
     "Port đang bận": "Port is busy",
@@ -4870,7 +4982,25 @@ const USBManagerI18n = (() => {
     "Lấy quyền test: tạm ngắt port ảo, nhường {device} cho Get Response/Communication": "Device {device} reserved for testing",
     "Giữ quyền test quá {minutes} phút - tự trả quyền cho port ảo": "Test reservation exceeded {minutes} minutes: control restored",
     "Khớp · {count} byte": "Matched · {count} bytes",
-    "Không khớp · {count} byte": "No match · {count} bytes"
+    "Không khớp · {count} byte": "No match · {count} bytes",
+    "Mỗi cụm gửi một lệnh rồi chờ phản hồi của chính lệnh đó. Tất cả cụm khớp mới là đúng thiết bị. Lệnh và phản hồi dùng": "Each step sends one command and waits for the reply to that command. The device matches only when every step matches. Commands and responses use",
+    "Modbus bật kiểm tra CRC: phản hồi của mỗi cụm còn phải đúng CRC, Unit ID và mã hàm của cụm đó.": "With the Modbus CRC check on, each step's reply must also have a valid CRC and that step's unit ID and function code.",
+    "Thử với USB đang cắm": "Test with a connected USB device",
+    "Chọn USB rồi bấm Gửi ở từng cụm để lấy phản hồi thật, hoặc thử tất cả cụm theo thứ tự.": "Pick a USB device, then press Send on a step to capture its real reply, or test all steps in order.",
+    "Thử tất cả cụm": "Test all steps",
+    "＋ Thêm cụm": "＋ Add step",
+    "Cụm {n}": "Step {n}",
+    "Xóa cụm": "Remove step",
+    "Dùng làm phản hồi": "Use as expected response",
+    "Lệnh gửi (trống = chỉ nghe)": "Command (empty = listen only)",
+    "Phản hồi mong đợi (mỗi dòng một phản hồi thay thế)": "Expected response (one alternative per line)",
+    "Chờ phản hồi (giây; trống = timeout dò)": "Wait for reply (seconds; empty = probe timeout)",
+    "{count} cụm": "{count} steps",
+    "Đang thử {count} cụm…": "Testing {count} steps…",
+    "Tất cả cụm khớp: đúng thiết bị.": "All steps match: this is the device.",
+    "Chưa khớp tất cả cụm: không nhận là thiết bị này.": "Not all steps match: this device would not be accepted.",
+    "Cụm {n} cần phản hồi mong đợi.": "Step {n} needs an expected response.",
+    "Cụm {n} cần phản hồi mong đợi hoặc bật kiểm tra CRC.": "Step {n} needs an expected response or the CRC check."
   }
 };
   let language='vi';
@@ -4983,9 +5113,7 @@ GLOBAL_DEFAULTS = {
 }
 PORT_DEFAULTS = {
     "friendly_name": "", "enabled": True, "protocol": "raw", "baud": 9600,
-    "unit_id": 1, "function_code": 3, "start_address": 0, "quantity": 1, "value": 0,
-    "send_command": "", "send_command_2": "", "expected_response": "",
-    "expected_response_2": "", "match_mode": "contains", "fuzzy_threshold": 80,
+    "probe_steps": [], "match_mode": "contains", "fuzzy_threshold": 80,
     "output_mode": "tcp", "tcp_port": 6001, "mbap_rtu_bridge": False,
     "modbus_response_timeout_s": 1.0, "pty_symlink": "", "on_connect_send": "",
 }
@@ -5030,18 +5158,19 @@ def validate_ui_config(payload):
     for cfg in ports:
         if not isinstance(cfg, dict):
             raise ValueError("Mỗi port phải là một object")
-        if set(cfg) - set(PORT_DEFAULTS) - {"name", "probe_timeout_s", "rescan_interval_s", "modbus_crc_match"}:
+        if set(cfg) - set(PORT_DEFAULTS) - set(LEGACY_PROBE_KEYS) - {"name", "probe_timeout_s", "rescan_interval_s", "modbus_crc_match"}:
             raise ValueError("Port chứa tùy chọn không hỗ trợ")
-        port = {**PORT_DEFAULTS, **cfg}
-        if port.get("modbus_crc_match") is None:
-            port["modbus_crc_match"] = default_modbus_crc_match(port)
+        if cfg.get("modbus_crc_match") is None:
+            cfg = {**cfg, "modbus_crc_match": default_modbus_crc_match(cfg)}
+        # Cau hinh cu (lenh/phan hoi o cap port) -> 1 cum.
+        port = {**PORT_DEFAULTS, **normalize_probe_port(cfg)}
         name = port.get("name")
         if not isinstance(name, str) or not NAME_RE.fullmatch(name) or len(name) > 64:
             raise ValueError("ID port: 1–64 chữ không dấu, số, dấu - hoặc _")
         if name in names:
             raise ValueError(f"Trùng ID port: {name}")
         names.add(name)
-        for key in ("friendly_name", "send_command", "send_command_2", "expected_response", "expected_response_2", "pty_symlink", "on_connect_send"):
+        for key in ("friendly_name", "pty_symlink", "on_connect_send"):
             if port[key] is None:
                 port[key] = ""
             if not isinstance(port[key], str) or len(port[key]) > 16384:
@@ -5072,19 +5201,38 @@ def validate_ui_config(payload):
             if not p.startswith("/dev/") or "\x00" in p or ".." in p.split("/") or p in pty_paths:
                 raise ValueError(f"{name}: đường dẫn PTY phải bắt đầu /dev/ và không trùng")
             pty_paths.add(p)
-        if port["protocol"] == "modbus_rtu":
-            for key, low, high in (("unit_id", 1, 247), ("function_code", 1, 127), ("start_address", 0, 65535), ("quantity", 1, 2000), ("value", 0, 65535)):
-                _number(port, key, low, high, True)
-        if port["enabled"] and port["protocol"] == "raw" and not (port["expected_response"] or port["expected_response_2"]):
-            raise ValueError(f"{name}: cần phản hồi nhận diện cho Raw")
-        if (port["enabled"] and port["protocol"] == "modbus_rtu" and not port["modbus_crc_match"]
-                and not (port["expected_response"] or port["expected_response_2"])):
-            raise ValueError(f"{name}: Modbus cần phản hồi nhận diện hoặc bật kiểm tra CRC")
+        steps = port["probe_steps"]
+        if len(steps) > MAX_PROBE_STEPS:
+            raise ValueError(f"{name}: tối đa {MAX_PROBE_STEPS} cụm nhận diện")
+        if port["enabled"] and not steps:
+            raise ValueError(f"{name}: cần ít nhất một cụm nhận diện")
+        for index, step in enumerate(steps, 1):
+            if not isinstance(step, dict) or set(step) - set(STEP_DEFAULTS):
+                raise ValueError(f"{name}: cụm {index} chứa tùy chọn không hỗ trợ")
+            for key in ("command", "expected_response"):
+                if step[key] is None:
+                    step[key] = ""
+                if not isinstance(step[key], str) or len(step[key]) > 16384:
+                    raise ValueError(f"{name}: cụm {index} {key} phải là chuỗi tối đa 16384 ký tự")
+            if step["wait_s"] in ("", None):
+                step["wait_s"] = None
+            else:
+                _number(step, "wait_s", 0.05, 30)
+            if port["protocol"] == "modbus_rtu":
+                for key, low, high in (("unit_id", 1, 247), ("function_code", 1, 127), ("start_address", 0, 65535), ("quantity", 1, 2000), ("value", 0, 65535)):
+                    if step[key] is None:
+                        step[key] = STEP_DEFAULTS[key]
+                    _number(step, key, low, high, True)
+            if port["enabled"] and not step_responses(step) and not (port["protocol"] == "modbus_rtu" and port["modbus_crc_match"]):
+                raise ValueError(f"{name}: cụm {index} cần phản hồi nhận diện" + (" hoặc bật kiểm tra CRC" if port["protocol"] == "modbus_rtu" else ""))
+            if step["command"]:
+                decode_command(step["command"])
+            for response in step_responses(step):
+                decode_command(response)
         if port["mbap_rtu_bridge"] and (port["protocol"] != "modbus_rtu" or port["output_mode"] != "tcp"):
             raise ValueError(f"{name}: Modbus TCP chỉ dùng với Modbus RTU và xuất TCP")
-        for key in ("send_command", "send_command_2", "expected_response", "expected_response_2", "on_connect_send"):
-            if port[key]:
-                decode_command(port[key])
+        if port["on_connect_send"]:
+            decode_command(port["on_connect_send"])
         # Validate frames even for disabled ports, before persisting anything.
         VirtualPort({**port, "enabled": True}, {
             "probe_timeout_s": options["default_probe_timeout_s"],
@@ -5133,7 +5281,7 @@ def ui_config_snapshot():
         options = json.loads(json.dumps(_config_state["options"] or {**GLOBAL_DEFAULTS, "ports": []}))
         # Show effective legacy defaults without changing the saved detection rule.
         options["ports"] = [{**PORT_DEFAULTS, "match_mode": "exact",
-                             "modbus_crc_match": default_modbus_crc_match(p), **p}
+                             "modbus_crc_match": default_modbus_crc_match(p), **normalize_probe_port(p)}
                             for p in options.get("ports", [])]
         has_password = bool(options.pop("mqtt_password", ""))
         return {"options": options, "has_mqtt_password": has_password,
@@ -5169,7 +5317,17 @@ def check_ui_response(payload):
     options = validate_ui_config({"ports": [cfg]})
     vport = VirtualPort(options["ports"][0], {"probe_timeout_s": 0.4, "rescan_interval_s": 15})
     actual = decode_command(payload.get("response", ""))
-    return {"ok": True, "matched": vport.check_passive_buffer(actual), "bytes": len(actual)}
+    step = payload.get("step")
+    if step is not None:
+        # Kiem 1 cum: phan hoi chu dong nhan duoc sau khi gui lenh cua cum do
+        # (cum chi nghe: tim trong du lieu nghe duoc).
+        if not isinstance(step, int) or not 0 <= step < len(vport.probe_steps):
+            raise ValueError("Cụm không tồn tại")
+        target = vport.probe_steps[step]
+        listen = vport.protocol != "modbus_rtu" and not target.get("command")
+        return {"ok": True, "matched": vport.check_step(target, actual, passive=listen), "bytes": len(actual)}
+    steps = [vport.check_step(s, actual, passive=True) for s in vport.probe_steps]
+    return {"ok": True, "matched": bool(steps) and all(steps), "steps": steps, "bytes": len(actual)}
 
 
 class UIRuntime:
@@ -5188,7 +5346,8 @@ class UIRuntime:
         def effective(cfg):
             if cfg is None:
                 return None
-            result = {**PORT_DEFAULTS, "match_mode": "exact", **cfg}
+            result = {**PORT_DEFAULTS, "match_mode": "exact",
+                      "modbus_crc_match": default_modbus_crc_match(cfg), **normalize_probe_port(cfg)}
             if isinstance(result["baud"], str) and result["baud"].isdigit():
                 result["baud"] = int(result["baud"])
             for key, value in list(result.items()):
@@ -5374,6 +5533,7 @@ class SpyHTTPHandler(http.server.BaseHTTPRequestHandler):
                     quantity=payload.get("quantity", 1),
                     value=payload.get("value"),
                     share=bool(payload.get("share", False)),
+                    wait_s=min(max(float(payload.get("wait_s") or 1.0), 0.05), 30.0),
                 )
             except Exception as exc:  # noqa: BLE001 - khong duoc lam sap http server
                 result = {"error": str(exc)}

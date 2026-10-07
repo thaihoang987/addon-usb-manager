@@ -12,16 +12,24 @@ Open **Configuration (Cấu hình)** and add a port. The ID is permanent and use
 letters, numbers, `_` or `-`; change the display name to rename an existing port.
 Choose its baud rate, device protocol and TCP port (6001–6030).
 
-- **Raw:** enter `text:GET_ID$` or another device-specific command and a matching
-  response such as `text:DEVICE_A`. Leave the command empty for passive listening.
-- **Modbus RTU:** enter unit ID, function code, start address and quantity.
-  Read functions FC01–04 are useful probes. CRC is generated automatically.
-  A write function changes the device every time the port is probed.
-- **Expected response:** use `text:` or `hex:`. The two response fields are
-  alternatives (OR). Raw ports need an expected response before enabling.
+- **Identification steps:** a port starts with one step; click **+ Add step**
+  for more (up to 10). Each step sends its own command, waits its own time and
+  is matched only against its own expected response. Steps run in order and the
+  device is accepted only when **every** step matches; the first failing step
+  stops the probe and the remaining steps are skipped.
+- **Raw:** each step has a command such as `text:GET_ID$` and a matching response
+  such as `text:DEVICE_A`. Leave the command empty to listen for data the device
+  sends by itself.
+- **Modbus RTU:** each step has its own unit ID, function code, start address and
+  quantity. Read functions FC01–04 are useful probes. CRC is generated
+  automatically. A write function changes the device every time the port is probed.
+- **Expected response:** use `text:` or `hex:`. Put alternatives on separate
+  lines; matching any line passes the step. Raw steps need an expected response.
+- **Wait for reply:** seconds to wait for the step's reply; empty uses the
+  probe timeout.
 - **Check Modbus CRC + unit ID + function code:** Modbus option. On its own it
-  accepts any valid reply from that unit/function; together with an expected
-  response, the reply must match both. A Modbus port needs at least one of them.
+  accepts any valid reply from the step's unit/function; together with an
+  expected response, the reply must match both. Each Modbus step needs at least one.
   Ports saved before this option keep CRC checking when no response was entered.
 - **Matching:** Contains works for a reply inside a larger capture; Exact checks
   the entire buffer; Starts with checks the beginning; Fuzzy uses a similarity threshold.
@@ -29,13 +37,23 @@ Choose its baud rate, device protocol and TCP port (6001–6030).
   send standard Modbus TCP frames. Advanced PTY output needs access to the generated
   serial path; use TCP for other containers.
 
-In the port editor, **Capture a response from a connected USB device** sends the
-command above to a selected USB device (devices held by other ports are disabled;
-the port's own device is shared safely) and fills the reply into the response
-field. The result is checked against the current rule immediately. You can also
-paste a reply into **Check rule against a captured response**; that check sends
-nothing to USB. Each port card shows the USB device it currently matches.
-Test each physical device to ensure the rule uniquely identifies it.
+In the port editor, pick a device under **Test with a connected USB device**
+(devices held by other ports are disabled; the port's own device is shared
+safely). **Send & capture response** on a step sends that step's command and
+shows the reply with an immediate match check; **Use as expected response** fills
+it in. **Test all steps** runs every step in order and reports which steps match.
+You can also paste a reply into **Check rule against a captured response**; that
+check sends nothing to USB and reports each step. Each port card shows the USB
+device it currently matches. Test each physical device to ensure the rule
+uniquely identifies it.
+
+The add-on log and the **Log** tab report, per USB device, which step matched
+and which failed (with the bytes received). A repeated identical result is
+logged only once.
+
+Ports configured before identification steps are converted automatically to one
+step: the command, response 1 and response 2 (as an alternative line). The former
+fallback command 2 is dropped, because every step must now match.
 
 **Keep port changes** updates the draft. **Save and apply** validates and saves
 the configuration. Only changed ports restart; their TCP clients must reconnect.
