@@ -6,6 +6,10 @@
 
 [Buy me a beer](https://buymeacoffee.com/leon_bell) · [Ko-fi](https://ko-fi.com/leonbell) · [PayPal](https://paypal.me/leonbell95)
 
+## 1.12.6
+
+- Port editor: larger, brighter labels and notes; still fits phone screens.
+
 ## 1.12.5
 
 - Port editor: required fields are marked with a red * (the expected response

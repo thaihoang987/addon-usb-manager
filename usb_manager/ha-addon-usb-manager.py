@@ -4208,6 +4208,15 @@ input,select,textarea{background:#0d1623;color:var(--text);border:1px solid #304
 @media(min-width:1700px){body{padding-right:64px;padding-left:296px}.app-header{padding-left:64px;padding-right:64px}}
 @media(max-width:1050px){body{padding:118px 22px 32px 214px}.tab-bar{width:192px;padding:25px 12px!important}.app-header{left:192px;padding-left:22px}.brand{font-size:14px;gap:8px}.brand small{font-size:9px}.brand-icon{width:32px;height:32px}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-intro{align-items:flex-start}.overview-intro h2{font-size:20px!important}.header-tag{display:none}}
 @media(max-width:720px){body{padding:160px 16px 28px}.app-header{left:0;min-height:80px;padding:16px 20px}.app-header h1{font-size:22px}.tab-bar{position:absolute;top:84px;left:0;right:0;bottom:auto;width:100%;padding:8px 16px!important;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);background:var(--bg)}.brand,.nav-caption{display:none}.tab-btn{width:auto;flex-shrink:0;padding:9px 12px;font-size:12px}.overview-intro{flex-direction:column;gap:8px}.overview-intro button{margin-top:4px}.metric-grid{gap:10px}.metric{padding:14px}.metric strong{font-size:28px}.metric span{font-size:11px}.metric small{font-size:9px}.cfg-actions{top:8px;gap:8px;padding:10px}.toolbar-spacer{display:none}.cfg-actions button{flex:1 1 auto;font-size:11px;padding:9px}#cfg_save{flex-basis:100%}.cfg-grid{grid-template-columns:1fr}.port-filter select{width:122px;font-size:12px}.section-heading h1{font-size:25px}.card{padding:18px}.cfg-port .cfg-toolbar{flex-wrap:nowrap}#cfg_editor{width:calc(100vw - 20px);padding:20px;max-height:calc(100dvh - 24px);border-radius:14px}#cfg_editor .cfg-toolbar{bottom:-20px}#settings_gear_btn{top:20px!important;right:18px!important}#addon_version_label{top:62px!important;right:20px!important}#settings_panel{right:16px!important}.copybox{flex-wrap:wrap}.copybox input{min-width:160px}}
+/* Port editor readability: brighter, larger labels and notes (scoped to the editor). */
+#cfg_editor form label{font-size:14px;color:#d3dcea;font-weight:500;line-height:1.4}
+#cfg_editor form p{font-size:13.5px;color:#b8c5d6;line-height:1.55}
+#cfg_editor form p.note{color:#c6d2e1}
+#cfg_editor form summary{font-size:14px}
+#cfg_editor .req{font-size:15px}
+#cfg_editor .probe-step-head strong{font-size:15px}
+#cfg_editor .cfg-grid>div:has(input[type=checkbox]) label{font-size:14px}
+@media(max-width:720px){#cfg_editor form label{font-size:13.5px}#cfg_editor form p{font-size:13px}#cfg_editor .probe-step{padding:12px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 
 </style>
